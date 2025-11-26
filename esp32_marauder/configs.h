@@ -24,6 +24,7 @@
   //#define XIAO_ESP32_S3
   //#define MARAUDER_REV_FEATHER
   //#define MARAUDER_CYD_MICRO // 2432S028
+  //#define MARAUDER_CYD_MICRO_INVERTED // 2432S028 with TFT_INVERSION_ON
   //#define MARAUDER_CYD_2USB // Another 2432S028 but it has tWo UsBs OoOoOoO
   //#define MARAUDER_CYD_GUITION // ESP32-2432S024 GUITION
   //#define MARAUDER_CYD_3_5_INCH
@@ -61,6 +62,8 @@
     #define HARDWARE_NAME "Marauder v6.1"
   #elif defined(MARAUDER_CYD_MICRO)
     #define HARDWARE_NAME "CYD 2432S028"
+  #elif defined(MARAUDER_CYD_MICRO_INVERTED)
+    #define HARDWARE_NAME "CYD 2432S028 Inverted"
   #elif defined(MARAUDER_CYD_2USB)
     #define HARDWARE_NAME "CYD 2432S028 2USB"
   #elif defined(MARAUDER_CYD_3_5_INCH)
@@ -222,7 +225,7 @@
     #define HAS_GPS
   #endif
 
-  #ifdef MARAUDER_CYD_MICRO
+  #if defined(MARAUDER_CYD_MICRO) || defined(MARAUDER_CYD_MICRO_INVERTED)
     #define HAS_TOUCH
     #define HAS_FLIPPER_LED
     //#define FLIPPER_ZERO_HAT
@@ -624,7 +627,7 @@
       #define D_PULL true
     #endif  
 
-    #ifdef MARAUDER_CYD_MICRO
+    #if defined(MARAUDER_CYD_MICRO) || defined(MARAUDER_CYD_MICRO_INVERTED)
       #define L_BTN -1
       #define C_BTN 0
       #define U_BTN -1
@@ -1019,7 +1022,7 @@
         #define TFT_HEIGHT 320
       #endif
 
-      #ifndef MARAUDER_CYD_MICRO
+      #if !defined(MARAUDER_CYD_MICRO) && !defined(MARAUDER_CYD_MICRO_INVERTED)
         #define TFT_DIY      
       #endif
 
@@ -1150,7 +1153,7 @@
       #define KIT_LED_BUILTIN 13
     #endif 
 
-    #if defined(MARAUDER_CYD_MICRO)
+    #if defined(MARAUDER_CYD_MICRO) || defined(MARAUDER_CYD_MICRO_INVERTED)
       #define CHAN_PER_PAGE 7
 
       #define SCREEN_CHAR_WIDTH 40
@@ -1853,7 +1856,7 @@
     //#define BUTTON_ARRAY_LEN 5
   #endif
 
-  #if defined(MARAUDER_CYD_MICRO)
+  #if defined(MARAUDER_CYD_MICRO) || defined(MARAUDER_CYD_MICRO_INVERTED)
     #define BANNER_TIME 100
     
     #define COMMAND_PREFIX "!"
@@ -2074,7 +2077,7 @@
       #define SD_CS 14
     #endif
 
-    #ifdef MARAUDER_CYD_MICRO
+    #if defined(MARAUDER_CYD_MICRO) || defined(MARAUDER_CYD_MICRO_INVERTED)
       #define SD_CS 5
     #endif
 
@@ -2225,7 +2228,7 @@
     #define MEM_LOWER_LIM 10000
   #elif defined(MARAUDER_V6) || defined(MARAUDER_V6_1)
     #define MEM_LOWER_LIM 10000
-  #elif defined(MARAUDER_CYD_MICRO)
+  #elif defined(MARAUDER_CYD_MICRO) || defined(MARAUDER_CYD_MICRO_INVERTED)
     #define MEM_LOWER_LIM 10000
   #elif defined(MARAUDER_CYD_2USB)
     #define MEM_LOWER_LIM 10000
@@ -2302,7 +2305,7 @@
       #define GPS_SERIAL_INDEX 2
       #define GPS_TX 4
       #define GPS_RX 13
-    #elif defined(MARAUDER_CYD_MICRO)
+    #elif defined(MARAUDER_CYD_MICRO) || defined(MARAUDER_CYD_MICRO_INVERTED)
       #define GPS_SERIAL_INDEX 2
       #define GPS_TX 1 // reverting
       #define GPS_RX 3 // reverting
@@ -2419,7 +2422,7 @@
       #define I2C_SCL 27
     #endif
 
-    #ifdef MARAUDER_CYD_MICRO
+    #if defined(MARAUDER_CYD_MICRO) || defined(MARAUDER_CYD_MICRO_INVERTED)
       #define I2C_SDA 22
       #define I2C_SCL 27
     #endif
@@ -2451,7 +2454,7 @@
     #define MARAUDER_TITLE_BYTES 13578
   #elif defined(MARAUDER_V6) || defined(MARAUDER_V6_1)
     #define MARAUDER_TITLE_BYTES 13578
-  #elif defined(MARAUDER_CYD_MICRO)
+  #elif defined(MARAUDER_CYD_MICRO) || defined(MARAUDER_CYD_MICRO_INVERTED)
     #define MARAUDER_TITLE_BYTES 13578
   #elif defined(MARAUDER_CYD_2USB)
     #define MARAUDER_TITLE_BYTES 13578
@@ -2495,7 +2498,7 @@
 
   //// STUPID CYD STUFF
   #if defined(HAS_CYD_TOUCH) || defined(HAS_C5_SD) || defined(HAS_SEPARATE_SD)
-    #ifdef MARAUDER_CYD_MICRO
+    #if defined(MARAUDER_CYD_MICRO) || defined(MARAUDER_CYD_MICRO_INVERTED)
       #define XPT2046_IRQ  36
       #define XPT2046_MOSI 32
       #define XPT2046_MISO 39
@@ -2554,7 +2557,7 @@
       #define R_PIN 6
     #endif
 
-    #ifdef MARAUDER_CYD_MICRO
+    #if defined(MARAUDER_CYD_MICRO) || defined(MARAUDER_CYD_MICRO_INVERTED)
       #define B_PIN 17
       #define G_PIN 16
       #define R_PIN 4
