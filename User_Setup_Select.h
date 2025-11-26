@@ -32,6 +32,7 @@
 //#include <User_Setup_pocket_sdr_2.h>
 //#include <User_Setup_pocket_sdr_3.h>
 //#include <User_Setup_cyd_micro.h>
+//#include <User_Setup_cyd_micro_inverted.h>
 //#include <User_Setup_cyd_guition.h>
 //#include <User_Setup_cyd_2usb.h>
 //#include <User_Setup_marauder_m5cardputer.h>
