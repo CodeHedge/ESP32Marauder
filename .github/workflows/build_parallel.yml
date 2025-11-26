@@ -288,7 +288,8 @@ jobs:
             esp32_marauder_v*.bin
           body: |
             **[Marauder Discord](https://discord.com/servers/willstunforfood-776211399918878760)**
-
+            **[Webflasher for CYDs](https://codehedge.github.io/Adafruit_WebSerial_ESPTool/)**
+            
             ### CYD BUILDS DIFFER FROM MAIN JCMK BUILD
             **For the time being CYD boards have had HAS_BATTERY removed from the official firmware. This is to support the people that have custom builds with battery level feeback.**
             **Also added support for some people using older CYDs that need inversion -- CYD 2432S028(R) Inverted**
