@@ -24,7 +24,7 @@
   //#define XIAO_ESP32_S3
   //#define MARAUDER_REV_FEATHER
   //#define MARAUDER_CYD_MICRO // 2432S028
-  //#define MARAUDER_CYD_2USB // Another 2432S028 but it has tWo UsBs OoOoOoO
+  #define MARAUDER_CYD_2USB // Another 2432S028 but it has tWo UsBs OoOoOoO
   //#define MARAUDER_CYD_GUITION // ESP32-2432S024 GUITION
   //#define MARAUDER_CYD_3_5_INCH
   //#define MARAUDER_C5
@@ -226,7 +226,7 @@
     #define HAS_TOUCH
     #define HAS_FLIPPER_LED
     //#define FLIPPER_ZERO_HAT
-    //#define HAS_BATTERY
+    #define HAS_BATTERY
     #define HAS_BT
     #define HAS_BT_REMOTE
     #define HAS_BUTTONS
@@ -245,7 +245,7 @@
     #define HAS_TOUCH
     #define HAS_FLIPPER_LED
     //#define FLIPPER_ZERO_HAT
-    //#define HAS_BATTERY
+    #define HAS_BATTERY
     #define HAS_BT
     #define HAS_BT_REMOTE
     #define HAS_BUTTONS
@@ -2304,12 +2304,12 @@
       #define GPS_RX 13
     #elif defined(MARAUDER_CYD_MICRO)
       #define GPS_SERIAL_INDEX 2
-      #define GPS_TX 22 // Whoever thought it would be a good idea to use UART0 for GPS...
-      #define GPS_RX 27 // Now maybe we will be able to use CLI
+      #define GPS_TX 1 // reverting
+      #define GPS_RX 3 // reverting
     #elif defined(MARAUDER_CYD_2USB)
       #define GPS_SERIAL_INDEX 2
-      #define GPS_TX 22 // Whoever thought it would be a good idea to use UART0 for GPS...
-      #define GPS_RX 27 // Now maybe we will be able to use CLI
+      #define GPS_TX 1 // reverting
+      #define GPS_RX 3 // reverting
     #elif defined(MARAUDER_CYD_3_5_INCH)
       #define GPS_SERIAL_INDEX 2
       #define GPS_TX 21
