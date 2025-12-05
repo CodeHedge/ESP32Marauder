@@ -319,3 +319,100 @@ jobs:
             | AWOK V2/V3 screen (white usb) | `_v6_1.bin` |
             | AWOK V2 flipper (orange usb) | `_flipper.bin` |
             | AWOK V3 flipper (orange usb) | `_marauder_dev_board_pro.bin` |
+
+  sync_cyd_webflasher:
+    name: Sync CYD Files to WebFlasher
+    runs-on: ubuntu-latest
+    needs: [post_compile_steps]
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    steps:
+      - name: Checkout ESP32Marauder
+        uses: actions/checkout@v4
+
+      - name: Get Version Info
+        id: version
+        run: |
+          VERSION_UNDERSCORE=$(grep '#define MARAUDER_VERSION' ./esp32_marauder/configs.h | sed -E 's/.*"v([^"]+)"/v\1/' | tr '.' '_')
+          VERSION_DOT=$(grep '#define MARAUDER_VERSION' ./esp32_marauder/configs.h | sed -E 's/.*"v([^"]+)"/\1/')
+          DATE=$(date +%Y%m%d)
+          echo "version_underscore=$VERSION_UNDERSCORE" >> $GITHUB_OUTPUT
+          echo "version_dot=$VERSION_DOT" >> $GITHUB_OUTPUT
+          echo "date=$DATE" >> $GITHUB_OUTPUT
+
+      - name: Download CYD Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: esp32_marauder_*_cyd_*
+          merge-multiple: true
+          path: ./cyd_bins
+
+      - name: Checkout WebFlasher Repo
+        uses: actions/checkout@v4
+        with:
+          repository: CodeHedge/Adafruit_WebSerial_ESPTool
+          token: ${{ secrets.WEBFLASHER }}
+          path: webflasher
+
+      - name: Archive Old Files and Update Current
+        run: |
+          # Move old bins from CURRENT to PREVIOUS
+          mkdir -p webflasher/resources/PREVIOUS
+          if ls webflasher/resources/CURRENT/*.bin 1> /dev/null 2>&1; then
+            mv webflasher/resources/CURRENT/*.bin webflasher/resources/PREVIOUS/
+          fi
+          
+          # Copy new bins to CURRENT
+          cp ./cyd_bins/*.bin webflasher/resources/CURRENT/
+
+      - name: Generate Manifest
+        run: |
+          VERSION="${{ steps.version.outputs.version_dot }}"
+          DATE="${{ steps.version.outputs.date }}"
+          VER_US="${{ steps.version.outputs.version_underscore }}"
+          
+          cat > webflasher/resources/CURRENT/manifest.json << EOF
+          {
+            "version": "$VERSION",
+            "devices": [
+              {
+                "id": "CYD2USB_INVERT_OFF",
+                "name": "CYD2USB V2 2.8\" (Display Invert Off)",
+                "group": "ESP32-2432S028R V2 2.8\" Cheap-Yellow-Display",
+                "files": {
+                  "bootloader": "resources/STATIC/M/CYD/esp32_marauder.ino.bootloader.bin",
+                  "partitions": "resources/STATIC/M/CYD/esp32_marauder.ino.partitions.bin",
+                  "firmware": "resources/CURRENT/esp32_marauder_${VER_US}_${DATE}_cyd_2432S028.bin"
+                }
+              },
+              {
+                "id": "CYD2USB_INVERT_ON",
+                "name": "CYD2USB V2 2.8\" (Display Invert On)",
+                "group": "ESP32-2432S028R V2 2.8\" Cheap-Yellow-Display",
+                "files": {
+                  "bootloader": "resources/STATIC/M/CYD/esp32_marauder.ino.bootloader.bin",
+                  "partitions": "resources/STATIC/M/CYD/esp32_marauder.ino.partitions.bin",
+                  "firmware": "resources/CURRENT/esp32_marauder_${VER_US}_${DATE}_cyd_2432S028_inverted.bin"
+                }
+              },
+              {
+                "id": "CYD2USB_V21_INVERT_OFF",
+                "name": "CYD2USB V2.1 2.8\" (Display Invert Off)",
+                "group": "ESP32-2432S028R V2.1 2.8\" Cheap-Yellow-Display",
+                "files": {
+                  "bootloader": "resources/STATIC/M/CYD/esp32_marauder.ino.bootloader.bin",
+                  "partitions": "resources/STATIC/M/CYD/esp32_marauder.ino.partitions.bin",
+                  "firmware": "resources/CURRENT/esp32_marauder_${VER_US}_${DATE}_cyd_2432S028_2usb.bin"
+                }
+              }
+            ]
+          }
+          EOF
+
+      - name: Commit and Push
+        working-directory: webflasher
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add resources/CURRENT/ resources/PREVIOUS/
+          git commit -m "Update Marauder CYD firmware to ${{ steps.version.outputs.version_dot }}"
+          git push
