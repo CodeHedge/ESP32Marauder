@@ -240,10 +240,12 @@ void CommandLine::runCommand(String input) {
     Serial.println(HELP_SNIFF_ESP_CMD);
     Serial.println(HELP_SNIFF_DEAUTH_CMD);
     Serial.println(HELP_SNIFF_PMKID_CMD);
+    Serial.println(HELP_SNIFF_SAE_CMD);
     Serial.println(HELP_STOPSCAN_CMD);
     #ifdef HAS_GPS
       Serial.println(HELP_WARDRIVE_CMD);
     #endif
+    Serial.println(HELP_MAC_TRACK_CMD);
     
     // WiFi attack
     Serial.println(HELP_ATTACK_CMD);
@@ -323,7 +325,8 @@ void CommandLine::runCommand(String input) {
   else if (cmd_args.get(0) == GPS_DATA_CMD) {
     #ifdef HAS_GPS
       if (gps_obj.getGpsModuleStatus()) {
-        Serial.println("Getting GPS Data. Stop with " + (String)STOPSCAN_CMD);
+        Serial.print(F("Getting GPS Data. Stop with "));
+        Serial.println((String)STOPSCAN_CMD);
         wifi_scan_obj.currentScanMode = WIFI_SCAN_GPS_DATA;
         #ifdef HAS_SCREEN
           menu_function_obj.changeMenu(&menu_function_obj.gpsInfoMenu);
@@ -388,7 +391,8 @@ void CommandLine::runCommand(String input) {
                 nmea_type="beidou_bd";
             }
             gps_obj.setType(nmea_type);
-            Serial.println("GPS Output Type Set To: " + nmea_type);
+            Serial.print(F("GPS Output Type Set To: "));
+            Serial.println(nmea_type);
           }
           else
             Serial.println(F("You did not provide a valid argument"));
@@ -466,12 +470,14 @@ void CommandLine::runCommand(String input) {
     int ch_set = this->argSearch(&cmd_args, "-s");
     
     if (cmd_args.size() == 1) {
-      Serial.println("Current channel: " + (String)wifi_scan_obj.set_channel);
+      Serial.print(F("Current channel: "));
+      Serial.println(wifi_scan_obj.set_channel);
     }
     else if (ch_set != -1) {
       wifi_scan_obj.set_channel = cmd_args.get(ch_set + 1).toInt();
       wifi_scan_obj.changeChannel();
-      Serial.println("Set channel: " + (String)wifi_scan_obj.set_channel);
+      Serial.print(F("Set channel: "));
+      Serial.println(wifi_scan_obj.set_channel);
     }
   }
   // Clear APs
@@ -529,7 +535,8 @@ void CommandLine::runCommand(String input) {
       }
 
       if (!result) {
-        Serial.println("Could not successfully update setting \"" + setting_name + "\"");
+        Serial.print(F("Could not successfully update setting \""));
+        Serial.println(setting_name + "\"");
         return;
       }
     }
@@ -547,7 +554,8 @@ void CommandLine::runCommand(String input) {
 
     // Signal strength scan
     if (cmd_args.get(0) == SIGSTREN_CMD) {
-      Serial.println("Starting Signal Strength Scan. Stop with " + (String)STOPSCAN_CMD);
+      Serial.print(F("Starting Signal Strength Scan. Stop with "));
+      Serial.println(STOPSCAN_CMD);
       #ifdef HAS_SCREEN
         display_obj.clearScreen();
         menu_function_obj.drawStatusBar();
@@ -557,7 +565,8 @@ void CommandLine::runCommand(String input) {
     }
     // Packet count
     else if (cmd_args.get(0) == PACKET_COUNT_CMD) {
-      Serial.println("Starting Packet Count Scan. Stop with " + (String)STOPSCAN_CMD);
+      Serial.print(F("Starting Packet Count Scan. Stop with "));
+      Serial.println(STOPSCAN_CMD);
       #ifdef HAS_SCREEN
         display_obj.clearScreen();
         menu_function_obj.drawStatusBar();
@@ -572,7 +581,8 @@ void CommandLine::runCommand(String input) {
           int flk_sw = this->argSearch(&cmd_args, "-f");
 
           if (flk_sw != -1) {
-            Serial.println("Starting Flock Wardrive. Stop with " + (String)STOPSCAN_CMD);
+            Serial.print(F("Starting Flock Wardrive. Stop with "));
+            Serial.println(STOPSCAN_CMD);
             #ifdef HAS_SCREEN
               display_obj.clearScreen();
               menu_function_obj.drawStatusBar();
@@ -580,7 +590,8 @@ void CommandLine::runCommand(String input) {
             wifi_scan_obj.StartScan(BT_SCAN_FLOCK_WARDRIVE, TFT_GREEN);
           }
           else if (sta_sw != -1) {
-            Serial.println("Starting Station Wardrive. Stop with " + (String)STOPSCAN_CMD);
+            Serial.print(F("Starting Station Wardrive. Stop with "));
+            Serial.println(STOPSCAN_CMD);
             #ifdef HAS_SCREEN
               display_obj.clearScreen();
               menu_function_obj.drawStatusBar();
@@ -735,6 +746,15 @@ void CommandLine::runCommand(String input) {
       #endif
       wifi_scan_obj.StartScan(WIFI_SCAN_AP, TFT_MAGENTA);
     }
+    // SAE sniff
+    else if (cmd_args.get(0) == SNIFF_SAE_CMD) {
+      Serial.println("Starting SAE Commit sniff. Stop with " + (String)STOPSCAN_CMD);
+      #ifdef HAS_SCREEN
+        display_obj.clearScreen();
+        menu_function_obj.drawStatusBar();
+      #endif
+      wifi_scan_obj.StartScan(WIFI_SCAN_SAE_COMMIT, TFT_MAGENTA);
+    }
     // Probe sniff
     else if (cmd_args.get(0) == SNIFF_PROBE_CMD) {
       Serial.println("Starting Probe sniff. Stop with " + (String)STOPSCAN_CMD);
@@ -822,6 +842,15 @@ void CommandLine::runCommand(String input) {
         wifi_scan_obj.StartScan(WIFI_SCAN_ACTIVE_EAPOL, TFT_VIOLET);
       }
     }    
+    // MAC Tracking
+    else if (cmd_args.get(0) == MAC_TRACK_CMD) {
+      Serial.println("Starting MAC Tracker. Stop with " + (String)STOPSCAN_CMD);
+      #ifdef HAS_SCREEN
+        display_obj.clearScreen();
+        menu_function_obj.drawStatusBar();
+      #endif
+      wifi_scan_obj.StartScan(WIFI_SCAN_DETECT_FOLLOW, TFT_MAGENTA);
+    }
 
 
   //// MAC Address commands    (Added by H4W9_4)
@@ -1075,6 +1104,14 @@ void CommandLine::runCommand(String input) {
           #endif
           wifi_scan_obj.StartScan(WIFI_ATTACK_FUNNY_BEACON, TFT_CYAN);
         }
+        else if (attack_type == ATTACK_TYPE_SAE) {
+          Serial.println("Starting SAE Commit spam. Stop with " + (String)STOPSCAN_CMD);
+          #ifdef HAS_SCREEN
+            display_obj.clearScreen();
+            menu_function_obj.drawStatusBar();
+          #endif
+          wifi_scan_obj.StartScan(WIFI_ATTACK_SAE_COMMIT, TFT_CYAN);
+        }
         else {
           Serial.println(F("Attack type not properly defined"));
           return;
@@ -1248,23 +1285,13 @@ void CommandLine::runCommand(String input) {
       #ifdef HAS_BT
         #ifdef HAS_GPS
           if (gps_obj.getGpsModuleStatus()) {
-            int cont_sw = this->argSearch(&cmd_args, "-c");
 
-            if (cont_sw == -1) {
-              Serial.println("Starting BT Wardrive. Stop with " + (String)STOPSCAN_CMD);
-              #ifdef HAS_SCREEN
-                display_obj.clearScreen();
-                menu_function_obj.drawStatusBar();
-              #endif
-              wifi_scan_obj.StartScan(BT_SCAN_WAR_DRIVE, TFT_GREEN);
-            }
-            else {Serial.println("Starting Continuous BT Wardrive. Stop with " + (String)STOPSCAN_CMD);
-              #ifdef HAS_SCREEN
-                display_obj.clearScreen();
-                menu_function_obj.drawStatusBar();
-              #endif
-              wifi_scan_obj.StartScan(BT_SCAN_WAR_DRIVE_CONT, TFT_GREEN);
-            }
+            Serial.println("Starting BT Wardrive. Stop with " + (String)STOPSCAN_CMD);
+            #ifdef HAS_SCREEN
+              display_obj.clearScreen();
+              menu_function_obj.drawStatusBar();
+            #endif
+            wifi_scan_obj.StartScan(BT_SCAN_WAR_DRIVE, TFT_GREEN);
           }
           else
             Serial.println(F("GPS Module not detected"));

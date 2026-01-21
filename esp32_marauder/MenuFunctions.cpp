@@ -203,6 +203,8 @@ void MenuFunctions::main(uint32_t currentTime)
     {
       // Stop the current scan
       if ((wifi_scan_obj.currentScanMode == WIFI_SCAN_PROBE) ||
+          (wifi_scan_obj.currentScanMode == WIFI_SCAN_SAE_COMMIT) ||
+          (wifi_scan_obj.currentScanMode == WIFI_SCAN_DETECT_FOLLOW) ||
           (wifi_scan_obj.currentScanMode == WIFI_SCAN_STATION_WAR_DRIVE) ||
           (wifi_scan_obj.currentScanMode == WIFI_SCAN_STATION) ||
           (wifi_scan_obj.currentScanMode == WIFI_SCAN_AP) ||
@@ -237,6 +239,7 @@ void MenuFunctions::main(uint32_t currentTime)
           (wifi_scan_obj.currentScanMode == WIFI_ATTACK_BAD_MSG) ||
           (wifi_scan_obj.currentScanMode == WIFI_ATTACK_SLEEP) ||
           (wifi_scan_obj.currentScanMode == WIFI_ATTACK_SLEEP_TARGETED) ||
+          (wifi_scan_obj.currentScanMode == WIFI_ATTACK_SAE_COMMIT) ||
           (wifi_scan_obj.currentScanMode == WIFI_ATTACK_MIMIC) ||
 		      (wifi_scan_obj.currentScanMode == WIFI_ATTACK_FUNNY_BEACON) ||
           (wifi_scan_obj.currentScanMode == WIFI_ATTACK_RICK_ROLL) ||
@@ -300,6 +303,8 @@ void MenuFunctions::main(uint32_t currentTime)
       {
         // Stop the current scan
         if ((wifi_scan_obj.currentScanMode == WIFI_SCAN_PROBE) ||
+            (wifi_scan_obj.currentScanMode == WIFI_SCAN_SAE_COMMIT) ||
+            (wifi_scan_obj.currentScanMode == WIFI_SCAN_DETECT_FOLLOW) ||
             (wifi_scan_obj.currentScanMode == WIFI_SCAN_STATION_WAR_DRIVE) ||
             (wifi_scan_obj.currentScanMode == WIFI_SCAN_RAW_CAPTURE) ||
             (wifi_scan_obj.currentScanMode == WIFI_SCAN_STATION) ||
@@ -336,6 +341,7 @@ void MenuFunctions::main(uint32_t currentTime)
             (wifi_scan_obj.currentScanMode == WIFI_ATTACK_BAD_MSG) ||
             (wifi_scan_obj.currentScanMode == WIFI_ATTACK_SLEEP) ||
             (wifi_scan_obj.currentScanMode == WIFI_ATTACK_SLEEP_TARGETED) ||
+            (wifi_scan_obj.currentScanMode == WIFI_ATTACK_SAE_COMMIT) ||
             (wifi_scan_obj.currentScanMode == WIFI_ATTACK_MIMIC) ||
 			      (wifi_scan_obj.currentScanMode == WIFI_ATTACK_FUNNY_BEACON) ||
             (wifi_scan_obj.currentScanMode == WIFI_ATTACK_RICK_ROLL) ||
@@ -401,6 +407,7 @@ void MenuFunctions::main(uint32_t currentTime)
         (wifi_scan_obj.currentScanMode != WIFI_ATTACK_BAD_MSG) &&
         (wifi_scan_obj.currentScanMode != WIFI_ATTACK_SLEEP) &&
         (wifi_scan_obj.currentScanMode != WIFI_ATTACK_SLEEP_TARGETED) &&
+        (wifi_scan_obj.currentScanMode != WIFI_ATTACK_SAE_COMMIT) &&
         (wifi_scan_obj.currentScanMode != WIFI_ATTACK_MIMIC) &&
         (wifi_scan_obj.currentScanMode != WIFI_SCAN_PACKET_RATE) &&
         (wifi_scan_obj.currentScanMode != WIFI_SCAN_RAW_CAPTURE) &&
@@ -1669,6 +1676,16 @@ void MenuFunctions::RunSetup()
     this->drawStatusBar();
     wifi_scan_obj.StartScan(WIFI_SCAN_SIG_STREN, TFT_CYAN);
   });
+  this->addNodes(&wifiSnifferMenu, "MAC Monitor", TFTMAGENTA, NULL, SCANNERS, [this]() {
+    display_obj.clearScreen();
+    this->drawStatusBar();
+    wifi_scan_obj.StartScan(WIFI_SCAN_DETECT_FOLLOW, TFT_MAGENTA);
+  });
+  this->addNodes(&wifiSnifferMenu, "SAE Commit", TFTLIME, NULL, EAPOL, [this]() {
+    display_obj.clearScreen();
+    this->drawStatusBar();
+    wifi_scan_obj.StartScan(WIFI_SCAN_SAE_COMMIT, TFT_GREEN);
+  });
 
   // Build Wardriving menu
   #ifdef HAS_GPS
@@ -1834,6 +1851,11 @@ void MenuFunctions::RunSetup()
     display_obj.clearScreen();
     this->drawStatusBar();
     wifi_scan_obj.StartScan(WIFI_ATTACK_SLEEP_TARGETED, TFT_MAGENTA);
+  });
+  this->addNodes(&wifiAttackMenu, "SAE Commit Flood", TFTLIME, NULL, EAPOL, [this]() {
+    display_obj.clearScreen();
+    this->drawStatusBar();
+    wifi_scan_obj.StartScan(WIFI_ATTACK_SAE_COMMIT, TFT_GREEN);
   });
 
   evilPortalMenu.parentMenu = &wifiAttackMenu;
@@ -2417,11 +2439,6 @@ void MenuFunctions::RunSetup()
         display_obj.clearScreen();
         this->drawStatusBar();
         wifi_scan_obj.StartScan(BT_SCAN_WAR_DRIVE, TFT_GREEN);
-      });
-      this->addNodes(&bluetoothSnifferMenu, "BT Wardrive Continuous", TFTRED, NULL, REBOOT, [this]() {
-        display_obj.clearScreen();
-        this->drawStatusBar();
-        wifi_scan_obj.StartScan(BT_SCAN_WAR_DRIVE_CONT, TFT_GREEN);
       });
     }
   #endif

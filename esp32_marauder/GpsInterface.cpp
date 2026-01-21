@@ -10,22 +10,21 @@ MicroNMEA nmea(nmeaBuffer, sizeof(nmeaBuffer));
 
 HardwareSerial Serial2(GPS_SERIAL_INDEX);
 
+static const char *PCAS_SET_115200 = "$PCAS01,5*19\r\n";
+
+static const uint32_t PROBE_MS = 1200;
+
 void GpsInterface::begin() {
-
-  /*#ifdef MARAUDER_MINI
-    pinMode(26, OUTPUT);
-
-    delay(1);
-
-    analogWrite(26, 243);
-    delay(1);
-
-    Serial.println("Activated GPS");
-    delay(100);
-  #endif*/
 
   
   Serial2.begin(9600, SERIAL_8N1, GPS_TX, GPS_RX);
+
+  uint32_t gps_baud = this->initGpsBaudAndForce115200();
+
+  if ((gps_baud != 9600) && (gps_baud != 115200))
+    Serial.println("Could not detect GPS baudrate");
+
+  delay(1000);
 
   MicroNMEA::sendSentence(Serial2, "$PSTMSETPAR,1201,0x00000042");
   MicroNMEA::sendSentence(Serial2, "$PSTMSAVEPAR");
@@ -35,7 +34,6 @@ void GpsInterface::begin() {
   delay(1000);
 
   if (Serial2.available()) {
-    Serial.println("GPS Attached Successfully");
     this->gps_enabled = true;
     while (Serial2.available()) {
       //Fetch the character one by one
@@ -56,6 +54,67 @@ void GpsInterface::begin() {
 
   nmea.setUnknownSentenceHandler(gps_nmea_notimp);
 
+}
+
+bool GpsInterface::probeBaud(uint32_t baud) {
+  Serial2.end();
+  delay(50);
+
+  Serial2.begin(baud, SERIAL_8N1, GPS_TX, GPS_RX);
+
+  uint32_t start = millis();
+  bool sawDollar = false;
+  bool parsedSentence = false;
+
+  while (millis() - start < PROBE_MS) {
+    while (Serial2.available()) {
+      char c = (char)Serial2.read();
+
+      if (c == '$') {
+        sawDollar = true;
+      }
+
+      // Feed characters directly to MicroNMEA
+      if (nmea.process(c)) {
+        parsedSentence = true;
+      }
+
+      // If we’ve seen real NMEA traffic and MicroNMEA parsed something,
+      // this baud is almost certainly correct
+      if (sawDollar && parsedSentence) {
+        return true;
+      }
+    }
+    delay(1);
+  }
+
+  return false;
+}
+
+void GpsInterface::setGpsTo115200From9600() {
+  Serial2.print(PCAS_SET_115200);
+  Serial2.flush();
+  delay(200);
+}
+
+uint32_t GpsInterface::initGpsBaudAndForce115200() {
+  if (probeBaud(115200)) {
+    return 115200;
+  }
+
+  if (probeBaud(9600)) {
+    setGpsTo115200From9600();
+
+    if (probeBaud(115200)) {
+      return 115200;
+    }
+
+    probeBaud(9600);
+    return 9600;
+  }
+
+  probeBaud(9600);
+  return 0;
 }
 
 //passthrough for other objects
@@ -518,6 +577,9 @@ void GpsInterface::setGPSInfo() {
 
   this->datetime = this->dt_string_from_gps();
 
+  this->lat_int = nmea.getLatitude();
+  this->lon_int = nmea.getLongitude();
+
   this->lat = String((float)nmea.getLatitude()/1000000, 7);
   this->lon = String((float)nmea.getLongitude()/1000000, 7);
   long alt = 0;
@@ -541,6 +603,14 @@ String GpsInterface::getLat() {
 
 String GpsInterface::getLon() {
   return this->lon;
+}
+
+int32_t GpsInterface::getLatInt() {
+  return this->lat_int;
+}
+
+int32_t GpsInterface::getLonInt() {
+  return this->lon_int;
 }
 
 float GpsInterface::getAlt() {

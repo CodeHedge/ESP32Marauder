@@ -28,12 +28,17 @@
 #include "esp_wifi.h"
 #include "esp_wifi_types.h"
 #include <esp_timer.h>
+#include "mbedtls/entropy.h"
+#include "mbedtls/bignum.h"
+#include "mbedtls/ctr_drbg.h"
+#include "mbedtls/ecp.h"
 #ifndef HAS_DUAL_BAND
   #include <lwip/etharp.h>
   #include <lwip/ip_addr.h>
 #endif
 #ifdef HAS_DUAL_BAND
   #include "esp_system.h"
+  #include "esp_mac.h"
 #endif
 #if defined(HAS_BT) && !defined(HAS_DUAL_BAND)
   #include "esp_bt.h"
@@ -144,6 +149,9 @@
 #define BT_SCAN_SIMPLE 73
 #define BT_SCAN_SIMPLE_TWO 74
 #define BT_SCAN_FLOCK_WARDRIVE 75
+#define WIFI_SCAN_DETECT_FOLLOW 76
+#define WIFI_SCAN_SAE_COMMIT 77
+#define WIFI_ATTACK_SAE_COMMIT 78
 
 #define WIFI_ATTACK_FUNNY_BEACON 99 
 
@@ -215,9 +223,29 @@ extern Settings settings_obj;
 
 esp_err_t esp_wifi_80211_tx(wifi_interface_t ifx, const void *buffer, int len, bool en_sys_seq);
 
-#ifdef HAS_DUAL_BAND
-  esp_err_t esp_base_mac_addr_set(uint8_t *Mac);
-#endif
+//#ifdef HAS_DUAL_BAND
+//  esp_err_t esp_base_mac_addr_set(uint8_t *Mac);
+//#endif
+
+#define EMPTY_ENTRY 0
+#define VALID_ENTRY 1
+#define TOMBSTONE_ENTRY 2
+
+#pragma pack(push, 1)
+struct MacEntry {
+  uint8_t  mac[6];
+  uint32_t last_seen_ms;
+  uint16_t frame_count;
+  int32_t  first_lat_e6;
+  int32_t  first_lon_e6;
+  int32_t  last_lat_e6;
+  int32_t  last_lon_e6;
+  bool following;
+  int32_t dloc;
+  int8_t rssi;
+  bool bt;
+};
+#pragma pack(pop)
 
 struct AirTag {
     String mac;                  // MAC address of the AirTag
@@ -237,6 +265,11 @@ struct Flipper {
   extern struct mac_addr* mac_history;
 #endif
 
+enum class MacSortMode : uint8_t {
+  MOST_RECENT,
+  MOST_FRAMES
+};
+
 class WiFiScan
 {
   private:
@@ -245,6 +278,8 @@ class WiFiScan
     #ifndef HAS_PSRAM
       struct mac_addr mac_history[mac_history_len];
     #endif
+
+    int current_act_len = 0;
 
     uint32_t chanActTime = 0;
 
@@ -281,6 +316,8 @@ class WiFiScan
     //int num_deauth = 0; // RED
 
     uint32_t initTime = 0;
+    uint32_t last_ui_update = 0;
+    uint32_t last_sour_apple_update = 0;
     bool run_setup = true;
     void initWiFi(uint8_t scan_mode);
     uint8_t bluetoothScanTime = 5;
@@ -406,6 +443,15 @@ class WiFiScan
     LinkedList<ConfirmedMultiSSID>* confirmed_multissid;
     bool multissid_list_full_reported;
 
+    uint8_t sae_commit[32] = {
+      0xb0, 0x00, 0x00, 0x00,                     // Type/Subtype, Duration
+      0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB,         // Destination
+      0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,         // Source
+      0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB,         // BSSID (Destination)
+      0x00, 0x00,                                 // Frag num
+      0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x13, 0x00  // Auth alg (SAE), SAE sequence, group 19
+    };
+
     // barebones packet
     uint8_t packet[128] = { 0x80, 0x00, 0x00, 0x00, //Frame Control, Duration
                     /*4*/   0xff, 0xff, 0xff, 0xff, 0xff, 0xff, //Destination address 
@@ -525,6 +571,7 @@ class WiFiScan
       NimBLEAdvertisementData GetUniversalAdvertisementData(EBLEPayloadType type);
     #endif
 
+    void updateTrackerUI();
     void showNetworkInfo();
     void setNetworkInfo();
     void fullARP();
@@ -535,17 +582,19 @@ class WiFiScan
     bool isHostAlive(IPAddress ip);
     bool checkHostPort(IPAddress ip, uint16_t port, uint16_t timeout = 100);
     String extractManufacturer(const uint8_t* payload);
-    int checkMatchAP(char addr[]);
+    int checkMatchAP(char addr[], bool update_ap = true);
     bool beaconHasWPS(const uint8_t* payload, int len);
     uint8_t getSecurityType(const uint8_t* beacon, uint16_t len);
     void addAnalyzerValue(int16_t value, int rssi_avg, int16_t target_array[], int array_size);
     bool mac_cmp(struct mac_addr addr1, struct mac_addr addr2);
+    bool mac_cmp(uint8_t addr1[6], uint8_t addr2[6]);
     void clearMacHistory();
     void executeWarDrive();
     void executeSourApple();
     void executeSpoofAirtag();
     void executeSwiftpairSpam(EBLEPayloadType type);
     void startWardriverWiFi();
+    void saeAttackLoop(uint32_t currentTime);
     //void generateRandomMac(uint8_t* mac);
     //void generateRandomName(char *name, size_t length);
     String processPwnagotchiBeacon(const uint8_t* frame, int length);
@@ -564,6 +613,7 @@ class WiFiScan
     void tftDrawChannelScaleButtons();
     void tftDrawColorKey();
     void tftDrawGraphObjects();
+    bool sendSAECommitFrame(uint8_t* targ_addr, uint8_t* src_addr) ;
     void sendProbeAttack(uint32_t currentTime);
     void sendDeauthAttack(uint32_t currentTime, String dst_mac_str = "ff:ff:ff:ff:ff:ff");
     void sendBadMsgAttack(uint32_t currentTime, bool all = false);
@@ -590,6 +640,7 @@ class WiFiScan
     void RunDeauthScan(uint8_t scan_mode, uint16_t color);
     void RunEapolScan(uint8_t scan_mode, uint16_t color);
     void RunProbeScan(uint8_t scan_mode, uint16_t color);
+    void RunSAEScan(uint8_t scan_mode, uint16_t color);
     void RunPacketMonitor(uint8_t scan_mode, uint16_t color);
     void RunBluetoothScan(uint8_t scan_mode, uint16_t color);
     void RunSourApple(uint8_t scan_mode, uint16_t color);
@@ -601,6 +652,7 @@ class WiFiScan
     void parseBSSID(const char* bssidStr, uint8_t* bssid);
     void writeHeader(bool poi = false);
     void writeFooter(bool poi = false);
+    void displayWardriveStats();
 
 
   public:
@@ -609,6 +661,9 @@ class WiFiScan
     //AccessPoint ap_list;
 
     //LinkedList<ssid>* ssids;
+
+    static MacEntry mac_entries[mac_history_len];
+    static uint8_t mac_entry_state[mac_history_len];
 
     // Stuff for RAW stats
     uint32_t mgmt_frames = 0;
@@ -730,7 +785,12 @@ class WiFiScan
     #ifdef HAS_SCREEN
       int8_t checkAnalyzerButtons(uint32_t currentTime);
     #endif
-    bool seen_mac(unsigned char* mac);
+    bool seen_mac(unsigned char* mac, bool simple = true);
+    int16_t seen_mac_int(unsigned char* mac, bool simple = true);
+    int update_mac_entry(const uint8_t mac[6], int8_t rssi = 0, bool bt = false);
+    inline void insert_mac_entry(uint32_t idx, const uint8_t mac[6], uint32_t now_ms, int8_t rssi = 0, bool bt = false);
+    void evict_and_insert(const uint8_t mac[6], uint32_t now_ms);
+    uint8_t build_top10_for_ui(MacEntry* out_top10, MacSortMode mode);
     void save_mac(unsigned char* mac);
     #ifdef HAS_BT
       void copyNimbleMac(const BLEAddress &addr, unsigned char out[6]);
@@ -760,8 +820,7 @@ class WiFiScan
     bool scanning();
     bool joinWiFi(String ssid, String password, bool gui = true);
     bool startWiFi(String ssid, String password, bool gui = true);
-    String getStaMAC();
-    String getApMAC();
+    void getMAC(bool get_sta, uint8_t* mac);
     String freeRAM();
     void changeChannel();
     void changeChannel(int chan);
@@ -795,7 +854,14 @@ class WiFiScan
     void startGPX(String file_name);
     //String macToString(const Station& station);
 
+    static bool initMbedtls();
+    static int mbedtls_entropy_source(void *data, unsigned char *output, size_t len);
+    static bool getSAEACT(const uint8_t *frame, size_t frame_len, uint16_t &group_out, size_t &act_len_out);
+    static bool sae_group_sizes(uint16_t group, size_t &scalar_len, size_t &element_len);
+    static bool mac_cmp(const uint8_t *a, const uint8_t *b);
+    static inline uint16_t le16(const uint8_t *p);
     static void getMAC(char *addr, uint8_t* data, uint16_t offset);
+    static void getMAC(uint8_t* mac, const uint8_t* data, uint16_t offset);
     static void pwnSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type);
     static void beaconSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type);
     //static void rawSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type);
@@ -811,5 +877,6 @@ class WiFiScan
     static void pineScanSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type); // Pineapple
     static int extractPineScanChannel(const uint8_t* payload, int len); // Pineapple
     static void multiSSIDSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type); // MultiSSID
+    static inline uint32_t hash_mac(const uint8_t mac[6]);
 };
 #endif
