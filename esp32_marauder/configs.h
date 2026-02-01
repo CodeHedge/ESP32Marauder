@@ -35,13 +35,15 @@
   //#define MARAUDER_V8
   //// END BOARD TARGETS
 
-  #define MARAUDER_VERSION "v1.10.1"
+  #define MARAUDER_VERSION "v1.10.2"
 
   #define GRAPH_REFRESH   100
 
   #define TRACK_EVICT_SEC 90 // Seconds before marking tracked MAC as tombstone
 
   #define DUAL_BAND_CHANNELS 51
+
+  #define DISPLAY_BUFFER_LIMIT 20
 
   //// HARDWARE NAMES
   #ifdef MARAUDER_M5STICKC
@@ -156,7 +158,7 @@
     #define HAS_BT
     #define HAS_BT_REMOTE
     #define HAS_BUTTONS
-    #define HAS_NEOPIXEL_LED
+    //#define HAS_NEOPIXEL_LED
     //#define HAS_PWR_MGMT
     #define HAS_SCREEN
     #define HAS_FULL_SCREEN
@@ -2335,6 +2337,8 @@
       #define mac_history_len 100
     #endif
 
+    #define mac_history_len_half (mac_history_len / 2)
+
     #if defined(MARAUDER_V6) || defined(MARAUDER_V6_1)
       #define GPS_SERIAL_INDEX 2
       #define GPS_TX 4
@@ -2410,6 +2414,7 @@
     #endif
   #else
     #define mac_history_len 100
+    #define mac_history_len_half (mac_history_len / 2)
   #endif
   //// END GPS STUFF
 
@@ -2520,9 +2525,9 @@
   #ifdef HAS_PSRAM
     #define BUF_SIZE 8 * 1024 // Had to reduce buffer size to save RAM. GG @spacehuhn
     #define SNAP_LEN 1 * 4096 // max len of each recieved packet
-  #elif !defined(HAS_ILI9341)
-    #define BUF_SIZE 8 * 1024 // Had to reduce buffer size to save RAM. GG @spacehuhn
-    #define SNAP_LEN 4096 // max len of each recieved packet
+  //#elif !defined(HAS_ILI9341)
+  //  #define BUF_SIZE 8 * 1024 // Had to reduce buffer size to save RAM. GG @spacehuhn
+  //  #define SNAP_LEN 4096 // max len of each recieved packet
   #else
     #define BUF_SIZE 3 * 1024 // Had to reduce buffer size to save RAM. GG @spacehuhn
     #define SNAP_LEN 2324 // max len of each recieved packet

@@ -9,8 +9,8 @@
 static const uint8_t *g_filter_bssid = nullptr;
 uint8_t *current_act = nullptr;
 
-MacEntry WiFiScan::mac_entries[mac_history_len];
-uint8_t WiFiScan::mac_entry_state[mac_history_len];
+MacEntry WiFiScan::mac_entries[mac_history_len_half];
+uint8_t WiFiScan::mac_entry_state[mac_history_len_half];
 
 int num_beacon = 0;
 int num_deauth = 0;
@@ -493,11 +493,11 @@ extern "C" {
         
                 Serial.println();
         
-                while (display_obj.printing)
-                  delay(1);
-                display_obj.loading = true;
-                display_obj.display_buffer->add(display_string);
-                display_obj.loading = false;
+                if (!display_obj.printing) {
+                  display_obj.loading = true;
+                  display_obj.display_buffer->add(display_string);
+                  display_obj.loading = false;
+                }
               #endif
             }
           }
@@ -971,11 +971,11 @@ extern "C" {
                       {
                         display_string.concat(" ");
                       }
-                      while (display_obj.printing)
-                        delay(1);
-                      display_obj.loading = true;
-                      display_obj.display_buffer->add(display_string);
-                      display_obj.loading = false;
+                      if (!display_obj.printing) {
+                        display_obj.loading = true;
+                        display_obj.display_buffer->add(display_string);
+                        display_obj.loading = false;
+                      }
                     }
                   #endif
                 }
@@ -1194,11 +1194,11 @@ extern "C" {
         
                 Serial.println();
         
-                while (display_obj.printing)
-                  delay(1);
-                display_obj.loading = true;
-                display_obj.display_buffer->add(display_string);
-                display_obj.loading = false;
+                if (!display_obj.printing) {
+                  display_obj.loading = true;
+                  display_obj.display_buffer->add(display_string);
+                  display_obj.loading = false;
+                }
               #endif
             }
           }
@@ -1654,11 +1654,11 @@ extern "C" {
                       {
                         display_string.concat(" ");
                       }
-                      while (display_obj.printing)
-                        delay(1);
-                      display_obj.loading = true;
-                      display_obj.display_buffer->add(display_string);
-                      display_obj.loading = false;
+                      if (!display_obj.printing) {
+                        display_obj.loading = true;
+                        display_obj.display_buffer->add(display_string);
+                        display_obj.loading = false;
+                      }
                     }
                   #endif
                 }
@@ -1721,7 +1721,7 @@ void WiFiScan::RunSetup() {
     mac_history = (struct mac_addr*) ps_malloc(mac_history_len * sizeof(struct mac_addr));
   #endif
 
-  for (int i = 0; i < mac_history_len; i++)
+  for (int i = 0; i < mac_history_len_half; i++)
     mac_entry_state[i] = 0;
 
   #ifdef HAS_BT
@@ -1762,6 +1762,8 @@ void WiFiScan::RunSetup() {
     
     this->shutdownBLE();
 
+    Serial.println("Initializing WiFi...");
+
     esp_wifi_init(&cfg);
     #ifdef HAS_IDF_3
       esp_wifi_set_country(&country);
@@ -1773,7 +1775,9 @@ void WiFiScan::RunSetup() {
     esp_wifi_get_mac(WIFI_IF_STA, this->sta_mac);
     delay(10);
     esp_wifi_get_mac(WIFI_IF_AP, this->ap_mac);
+    Serial.println("Setting MAC...");
     this->setMac();
+    Serial.println("Shutting down WiFi...");
     this->shutdownWiFi();
   #endif
 
@@ -2360,6 +2364,10 @@ bool WiFiScan::shutdownBLE() {
       
       pBLEScan->clearResults();
 
+      delay(100);
+
+      Serial.println("Deinitializing NimBLE...");
+
       //#ifndef HAS_DUAL_BAND
         NimBLEDevice::deinit();
       //#endif
@@ -2629,7 +2637,7 @@ int16_t WiFiScan::seen_mac_int(unsigned char* mac, bool simple) {
     tmp[x] = mac[x];
   }
 
-  for (int x = 0; x < mac_history_len; x++) {
+  for (int x = 0; x < mac_history_len_half; x++) {
     if (this->mac_cmp(tmp, mac_entries[x].mac)) {
       return x;
     }
@@ -2650,12 +2658,12 @@ inline uint32_t WiFiScan::hash_mac(const uint8_t mac[6]) {
 
 int WiFiScan::update_mac_entry(const uint8_t mac[6], int8_t rssi, bool bt) {
   const uint32_t now_ms = millis();
-  const uint32_t start_idx = hash_mac(mac) & (mac_history_len - 1);
+  const uint32_t start_idx = hash_mac(mac) & (mac_history_len_half - 1);
 
   int32_t first_tombstone = -1;
 
-  for (uint32_t probe = 0; probe < mac_history_len; probe++) {
-    const uint32_t idx = (start_idx + probe) & (mac_history_len - 1);
+  for (uint32_t probe = 0; probe < mac_history_len_half; probe++) {
+    const uint32_t idx = (start_idx + probe) & (mac_history_len_half - 1);
 
     switch (mac_entry_state[idx]) {
 
@@ -2691,7 +2699,7 @@ int WiFiScan::update_mac_entry(const uint8_t mac[6], int8_t rssi, bool bt) {
 
           mac_entries[idx].rssi = rssi;
 
-          return idx + mac_history_len;
+          return idx + mac_history_len_half;
         }
         break;
     }
@@ -2729,7 +2737,7 @@ void WiFiScan::evict_and_insert(const uint8_t mac[6], uint32_t now_ms) {
   const uint32_t EVICT_AGE_MS = TRACK_EVICT_SEC * 1000UL;
 
   // 1) Prefer reusing a tombstone if any exist.
-  for (uint32_t i = 0; i < mac_history_len; i++) {
+  for (uint32_t i = 0; i < mac_history_len_half; i++) {
     if (mac_entry_state[i] == TOMBSTONE_ENTRY) {
       insert_mac_entry(i, mac, now_ms);
       return;
@@ -2746,7 +2754,7 @@ void WiFiScan::evict_and_insert(const uint8_t mac[6], uint32_t now_ms) {
   uint16_t victim_any_frames = 0xFFFF;
   uint32_t victim_any_age = 0;
 
-  for (uint32_t i = 0; i < mac_history_len; i++) {
+  for (uint32_t i = 0; i < mac_history_len_half; i++) {
     if (mac_entry_state[i] != VALID_ENTRY) continue;
 
     const uint32_t age = (uint32_t)(now_ms - mac_entries[i].last_seen_ms);
@@ -2882,7 +2890,7 @@ uint8_t WiFiScan::build_top10_for_ui(MacEntry* out_top10, MacSortMode mode) {
     }
   };
 
-  for (uint32_t i = 0; i < mac_history_len; i++) {
+  for (uint32_t i = 0; i < mac_history_len_half; i++) {
     if (mac_entry_state[i] != VALID_ENTRY)
       continue;
 
@@ -5030,7 +5038,7 @@ void WiFiScan::RunStationScan(uint8_t scan_mode, uint16_t color)
     display_obj.print_delay_2 = 10;
     display_obj.initScrollValues(true);
     display_obj.tft.setTextWrap(false);
-    display_obj.tft.setTextColor(TFT_WHITE, color);
+    display_obj.tft.setTextColor(TFT_BLACK, color);
     #ifdef HAS_FULL_SCREEN
       display_obj.tft.fillRect(0,16,TFT_WIDTH,16, color);
       display_obj.tft.drawCentreString(text_table1[59],TFT_WIDTH / 2,16,2);
@@ -5311,6 +5319,8 @@ void WiFiScan::RunProbeScan(uint8_t scan_mode, uint16_t color)
         display_obj.tft.drawCentreString(text_table4[40],TFT_WIDTH / 2,16,2);
       else if (scan_mode == WIFI_SCAN_DETECT_FOLLOW) 
         display_obj.tft.drawCentreString("MAC Monitor",TFT_WIDTH / 2,16,2);
+      else if (scan_mode == WIFI_SCAN_STATION_WAR_DRIVE)
+        display_obj.tft.drawCentreString("Station Wardrive",TFT_WIDTH / 2,16,2);
       else {
         Serial.println(F("Starting WiFi sniff for Flock..."));
         display_obj.tft.drawCentreString("Flock Sniff",TFT_WIDTH / 2,16,2);
@@ -7701,7 +7711,11 @@ void WiFiScan::beaconSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type
       
             Serial.print(F(" "));
       
-            display_obj.display_buffer->add(display_string);
+            if (!display_obj.printing) {
+              display_obj.loading = true;
+              display_obj.display_buffer->add(display_string);
+              display_obj.loading = false;
+            }
           #endif
 
           Serial.println();
@@ -8071,12 +8085,12 @@ void WiFiScan::beaconSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type
   else if (wifi_scan_obj.currentScanMode == WIFI_SCAN_DETECT_FOLLOW) {
     int frame_check = wifi_scan_obj.update_mac_entry(src_addr, snifferPacket->rx_ctrl.rssi);
 
-    if (frame_check >= mac_history_len) {
+    if (frame_check >= mac_history_len_half) {
       int32_t dloc = 0;
-      bool is_following = is_following_candidate_light(wifi_scan_obj.mac_entries[frame_check - mac_history_len], millis(), &dloc);
+      bool is_following = is_following_candidate_light(wifi_scan_obj.mac_entries[frame_check - mac_history_len_half], millis(), &dloc);
       if (is_following) {
-        wifi_scan_obj.mac_entries[frame_check - mac_history_len].dloc = dloc;
-        wifi_scan_obj.mac_entries[frame_check - mac_history_len].following = is_following;
+        wifi_scan_obj.mac_entries[frame_check - mac_history_len_half].dloc = dloc;
+        wifi_scan_obj.mac_entries[frame_check - mac_history_len_half].following = is_following;
         buffer_obj.append(snifferPacket, len);
       }
     }
