@@ -5,10 +5,6 @@
 
 extern const unsigned char menu_icons[][66];
 
-MenuFunctions::MenuFunctions()
-{
-}
-
 void MenuFunctions::buttonNotSelected(int b, int x) {
   if (x == -1)
     x = b;
@@ -166,6 +162,8 @@ void MenuFunctions::main(uint32_t currentTime)
       (wifi_scan_obj.currentScanMode != WIFI_CONNECTED) &&
       (wifi_scan_obj.currentScanMode != WIFI_ATTACK_BEACON_SPAM) &&
       (wifi_scan_obj.currentScanMode != WIFI_ATTACK_AP_SPAM) &&
+      (wifi_scan_obj.currentScanMode != WIFI_ATTACK_CSA) &&
+      (wifi_scan_obj.currentScanMode != WIFI_ATTACK_QUIET) &&
       (wifi_scan_obj.currentScanMode != WIFI_ATTACK_AUTH) &&
       (wifi_scan_obj.currentScanMode != WIFI_ATTACK_DEAUTH) &&
       (wifi_scan_obj.currentScanMode != WIFI_ATTACK_DEAUTH_MANUAL) &&
@@ -188,6 +186,33 @@ void MenuFunctions::main(uint32_t currentTime)
   #endif
 
 
+  // Brightness gesture: hold top or bottom zone 1.5s to enter brightness mode
+  #ifdef HAS_ILI9341
+    if (pressed && (wifi_scan_obj.currentScanMode == WIFI_SCAN_OFF ||
+                    wifi_scan_obj.currentScanMode == WIFI_CONNECTED)) {
+      uint16_t zoneUp = TFT_HEIGHT * 25 / 100;
+      uint16_t zoneDown = TFT_HEIGHT * 75 / 100;
+      if (t_y < zoneUp || t_y >= zoneDown) {
+        uint32_t hold_start = millis();
+        uint16_t hx, hy;
+        bool held = false;
+        while (display_obj.updateTouch(&hx, &hy)) {
+          if (millis() - hold_start >= 1500) {
+            held = true;
+            break;
+          }
+          delay(10);
+        }
+        if (held) {
+          // Wait for release before entering brightness mode
+          while (display_obj.updateTouch(&hx, &hy)) delay(10);
+          this->brightnessMode();
+          return;
+        }
+      }
+    }
+  #endif
+
   // This is if there are scans/attacks going on
   #ifdef HAS_ILI9341
     if ((wifi_scan_obj.currentScanMode != WIFI_SCAN_OFF) &&
@@ -202,12 +227,10 @@ void MenuFunctions::main(uint32_t currentTime)
         (wifi_scan_obj.currentScanMode != WIFI_SCAN_GPS_NMEA))
     {
       // Stop the current scan
-      if ((wifi_scan_obj.currentScanMode == WIFI_SCAN_PROBE) ||
-          (wifi_scan_obj.currentScanMode == WIFI_SCAN_SAE_COMMIT) ||
+      if ((wifi_scan_obj.currentScanMode == WIFI_SCAN_SAE_COMMIT) ||
           (wifi_scan_obj.currentScanMode == WIFI_SCAN_DETECT_FOLLOW) ||
           (wifi_scan_obj.currentScanMode == WIFI_SCAN_STATION_WAR_DRIVE) ||
           (wifi_scan_obj.currentScanMode == WIFI_SCAN_STATION) ||
-          (wifi_scan_obj.currentScanMode == WIFI_SCAN_AP) ||
           (wifi_scan_obj.currentScanMode == WIFI_SCAN_WAR_DRIVE) ||
           (wifi_scan_obj.currentScanMode == WIFI_SCAN_EVIL_PORTAL) ||
           (wifi_scan_obj.currentScanMode == WIFI_SCAN_TARGET_AP) ||
@@ -228,9 +251,10 @@ void MenuFunctions::main(uint32_t currentTime)
           (wifi_scan_obj.currentScanMode == WIFI_SCAN_MULTISSID) ||
           (wifi_scan_obj.currentScanMode == WIFI_SCAN_ESPRESSIF) ||
           (wifi_scan_obj.currentScanMode == WIFI_SCAN_ALL) ||
-          (wifi_scan_obj.currentScanMode == WIFI_SCAN_DEAUTH) ||
           (wifi_scan_obj.currentScanMode == WIFI_ATTACK_BEACON_SPAM) ||
           (wifi_scan_obj.currentScanMode == WIFI_ATTACK_AP_SPAM) ||
+          (wifi_scan_obj.currentScanMode == WIFI_ATTACK_CSA) ||
+          (wifi_scan_obj.currentScanMode == WIFI_ATTACK_QUIET) ||
           (wifi_scan_obj.currentScanMode == WIFI_ATTACK_AUTH) ||
           (wifi_scan_obj.currentScanMode == WIFI_ATTACK_DEAUTH) ||
           (wifi_scan_obj.currentScanMode == WIFI_ATTACK_DEAUTH_MANUAL) ||
@@ -245,6 +269,7 @@ void MenuFunctions::main(uint32_t currentTime)
           (wifi_scan_obj.currentScanMode == WIFI_ATTACK_RICK_ROLL) ||
           (wifi_scan_obj.currentScanMode == WIFI_ATTACK_BEACON_LIST) ||
           (wifi_scan_obj.currentScanMode == BT_SCAN_ALL) ||
+          (wifi_scan_obj.currentScanMode == BT_SCAN_RAYBAN) ||
           (wifi_scan_obj.currentScanMode == BT_SCAN_AIRTAG) ||
           (wifi_scan_obj.currentScanMode == BT_SCAN_AIRTAG_MON) ||
           (wifi_scan_obj.currentScanMode == BT_SCAN_FLIPPER) ||
@@ -333,6 +358,8 @@ void MenuFunctions::main(uint32_t currentTime)
             (wifi_scan_obj.currentScanMode == WIFI_SCAN_DEAUTH) ||
             (wifi_scan_obj.currentScanMode == WIFI_ATTACK_BEACON_SPAM) ||
             (wifi_scan_obj.currentScanMode == WIFI_ATTACK_AP_SPAM) ||
+            (wifi_scan_obj.currentScanMode == WIFI_ATTACK_CSA) ||
+            (wifi_scan_obj.currentScanMode == WIFI_ATTACK_QUIET) ||
             (wifi_scan_obj.currentScanMode == WIFI_ATTACK_AUTH) ||
             (wifi_scan_obj.currentScanMode == WIFI_ATTACK_DEAUTH) ||
             (wifi_scan_obj.currentScanMode == WIFI_ATTACK_DEAUTH_MANUAL) ||
@@ -347,6 +374,7 @@ void MenuFunctions::main(uint32_t currentTime)
             (wifi_scan_obj.currentScanMode == WIFI_ATTACK_RICK_ROLL) ||
             (wifi_scan_obj.currentScanMode == WIFI_ATTACK_BEACON_LIST) ||
             (wifi_scan_obj.currentScanMode == BT_SCAN_ALL) ||
+            (wifi_scan_obj.currentScanMode == BT_SCAN_RAYBAN) ||
             (wifi_scan_obj.currentScanMode == BT_SCAN_AIRTAG) ||
             (wifi_scan_obj.currentScanMode == BT_SCAN_AIRTAG_MON) ||
             (wifi_scan_obj.currentScanMode == BT_SCAN_FLIPPER) ||
@@ -399,6 +427,8 @@ void MenuFunctions::main(uint32_t currentTime)
   #ifdef HAS_ILI9341
     if ((wifi_scan_obj.currentScanMode != WIFI_ATTACK_BEACON_SPAM) &&
         (wifi_scan_obj.currentScanMode != WIFI_ATTACK_AP_SPAM) &&
+        (wifi_scan_obj.currentScanMode != WIFI_ATTACK_CSA) &&
+        (wifi_scan_obj.currentScanMode != WIFI_ATTACK_QUIET) &&
         (wifi_scan_obj.currentScanMode != WIFI_ATTACK_AUTH) &&
         (wifi_scan_obj.currentScanMode != WIFI_ATTACK_DEAUTH) &&
         (wifi_scan_obj.currentScanMode != WIFI_ATTACK_DEAUTH_MANUAL) &&
@@ -414,7 +444,11 @@ void MenuFunctions::main(uint32_t currentTime)
         (wifi_scan_obj.currentScanMode != WIFI_SCAN_CHAN_ANALYZER) &&
         (wifi_scan_obj.currentScanMode != WIFI_SCAN_CHAN_ACT) &&
         (wifi_scan_obj.currentScanMode != WIFI_SCAN_SIG_STREN) &&
-		(wifi_scan_obj.currentScanMode != WIFI_ATTACK_FUNNY_BEACON) &&
+        (wifi_scan_obj.currentScanMode != WIFI_SCAN_AP) &&
+        (wifi_scan_obj.currentScanMode != WIFI_SCAN_PROBE) &&
+        (wifi_scan_obj.currentScanMode != WIFI_SCAN_DEAUTH) &&
+		    (wifi_scan_obj.currentScanMode != WIFI_ATTACK_FUNNY_BEACON) &&
+        (wifi_scan_obj.currentScanMode != WIFI_SCAN_EAPOL) &&
         (wifi_scan_obj.currentScanMode != WIFI_ATTACK_RICK_ROLL))
     {
       // Need this to set all keys to false
@@ -462,11 +496,23 @@ void MenuFunctions::main(uint32_t currentTime)
                   (wifi_scan_obj.currentScanMode == WIFI_SCAN_CHAN_ANALYZER) ||
                   (wifi_scan_obj.currentScanMode == WIFI_SCAN_PACKET_RATE) ||
                   (wifi_scan_obj.currentScanMode == WIFI_SCAN_RAW_CAPTURE) ||
+                  (wifi_scan_obj.currentScanMode == WIFI_SCAN_AP) ||
+                  (wifi_scan_obj.currentScanMode == WIFI_SCAN_PROBE) ||
+                  (wifi_scan_obj.currentScanMode == WIFI_SCAN_DEAUTH) ||
                   (wifi_scan_obj.currentScanMode == WIFI_SCAN_SIG_STREN)) {
-            if (wifi_scan_obj.set_channel < 14)
-              wifi_scan_obj.changeChannel(wifi_scan_obj.set_channel + 1);
-            else
-              wifi_scan_obj.changeChannel(1);
+            #ifndef HAS_DUAL_BAND
+              if (wifi_scan_obj.set_channel < 14)
+                wifi_scan_obj.changeChannel(wifi_scan_obj.set_channel + 1);
+              else
+                wifi_scan_obj.changeChannel(1);
+            #else
+              if (wifi_scan_obj.dual_band_channel_index < DUAL_BAND_CHANNELS - 1)
+                wifi_scan_obj.dual_band_channel_index++;
+              else
+                wifi_scan_obj.dual_band_channel_index = 0;
+
+              wifi_scan_obj.changeChannel(wifi_scan_obj.dual_band_channels[wifi_scan_obj.dual_band_channel_index]);
+            #endif
           }
           else if (wifi_scan_obj.currentScanMode == WIFI_SCAN_CHAN_ACT) {
             #ifndef HAS_DUAL_BAND
@@ -518,11 +564,23 @@ void MenuFunctions::main(uint32_t currentTime)
                   (wifi_scan_obj.currentScanMode == WIFI_SCAN_CHAN_ANALYZER) ||
                   (wifi_scan_obj.currentScanMode == WIFI_SCAN_PACKET_RATE) ||
                   (wifi_scan_obj.currentScanMode == WIFI_SCAN_RAW_CAPTURE) ||
+                  (wifi_scan_obj.currentScanMode == WIFI_SCAN_AP) ||
+                  (wifi_scan_obj.currentScanMode == WIFI_SCAN_PROBE) ||
+                  (wifi_scan_obj.currentScanMode == WIFI_SCAN_DEAUTH) ||
                   (wifi_scan_obj.currentScanMode == WIFI_SCAN_SIG_STREN)) {
-            if (wifi_scan_obj.set_channel > 1)
-              wifi_scan_obj.changeChannel(wifi_scan_obj.set_channel - 1);
-            else
-              wifi_scan_obj.changeChannel(14);
+            #ifndef HAS_DUAL_BAND
+              if (wifi_scan_obj.set_channel > 1)
+                wifi_scan_obj.changeChannel(wifi_scan_obj.set_channel - 1);
+              else
+                wifi_scan_obj.changeChannel(14);
+            #else
+              if (wifi_scan_obj.dual_band_channel_index > 0)
+                wifi_scan_obj.dual_band_channel_index--;
+              else
+                wifi_scan_obj.dual_band_channel_index = DUAL_BAND_CHANNELS - 1;
+
+              wifi_scan_obj.changeChannel(wifi_scan_obj.dual_band_channels[wifi_scan_obj.dual_band_channel_index]);
+            #endif
           }
           else if (wifi_scan_obj.currentScanMode == WIFI_SCAN_CHAN_ACT) {
             #ifndef HAS_DUAL_BAND
@@ -630,11 +688,23 @@ void MenuFunctions::main(uint32_t currentTime)
                       (wifi_scan_obj.currentScanMode == WIFI_SCAN_CHAN_ANALYZER) ||
                       (wifi_scan_obj.currentScanMode == WIFI_SCAN_PACKET_RATE) ||
                       (wifi_scan_obj.currentScanMode == WIFI_SCAN_RAW_CAPTURE) ||
+                      (wifi_scan_obj.currentScanMode == WIFI_SCAN_AP) ||
+                      (wifi_scan_obj.currentScanMode == WIFI_SCAN_PROBE) ||
+                      (wifi_scan_obj.currentScanMode == WIFI_SCAN_DEAUTH) ||
                       (wifi_scan_obj.currentScanMode == WIFI_SCAN_SIG_STREN)) {
-                if (wifi_scan_obj.set_channel < 14)
-                  wifi_scan_obj.changeChannel(wifi_scan_obj.set_channel + 1);
-                else
-                  wifi_scan_obj.changeChannel(1);
+                #ifndef HAS_DUAL_BAND
+                  if (wifi_scan_obj.set_channel < 14)
+                    wifi_scan_obj.changeChannel(wifi_scan_obj.set_channel + 1);
+                  else
+                    wifi_scan_obj.changeChannel(1);
+                #else
+                  if (wifi_scan_obj.dual_band_channel_index < DUAL_BAND_CHANNELS - 1)
+                    wifi_scan_obj.dual_band_channel_index++;
+                  else
+                    wifi_scan_obj.dual_band_channel_index = 0;
+
+                  wifi_scan_obj.changeChannel(wifi_scan_obj.dual_band_channels[wifi_scan_obj.dual_band_channel_index]);
+                #endif
               }
               else if (wifi_scan_obj.currentScanMode == WIFI_SCAN_CHAN_ACT) {
                 #ifndef HAS_DUAL_BAND
@@ -694,11 +764,23 @@ void MenuFunctions::main(uint32_t currentTime)
                 (wifi_scan_obj.currentScanMode == WIFI_SCAN_CHAN_ANALYZER) ||
                 (wifi_scan_obj.currentScanMode == WIFI_SCAN_PACKET_RATE) ||
                 (wifi_scan_obj.currentScanMode == WIFI_SCAN_RAW_CAPTURE) ||
+                (wifi_scan_obj.currentScanMode == WIFI_SCAN_AP) ||
+                (wifi_scan_obj.currentScanMode == WIFI_SCAN_PROBE) ||
+                (wifi_scan_obj.currentScanMode == WIFI_SCAN_DEAUTH) ||
                 (wifi_scan_obj.currentScanMode == WIFI_SCAN_SIG_STREN)) {
-          if (wifi_scan_obj.set_channel > 1)
-            wifi_scan_obj.changeChannel(wifi_scan_obj.set_channel - 1);
-          else
-            wifi_scan_obj.changeChannel(14);
+          #ifndef HAS_DUAL_BAND
+            if (wifi_scan_obj.set_channel > 1)
+              wifi_scan_obj.changeChannel(wifi_scan_obj.set_channel - 1);
+            else
+              wifi_scan_obj.changeChannel(14);
+          #else
+            if (wifi_scan_obj.dual_band_channel_index > 0)
+              wifi_scan_obj.dual_band_channel_index--;
+            else
+              wifi_scan_obj.dual_band_channel_index = DUAL_BAND_CHANNELS - 1;
+
+            wifi_scan_obj.changeChannel(wifi_scan_obj.dual_band_channels[wifi_scan_obj.dual_band_channel_index]);
+          #endif
         }
         else if (wifi_scan_obj.currentScanMode == WIFI_SCAN_CHAN_ACT) {
           #ifndef HAS_DUAL_BAND
@@ -722,10 +804,19 @@ void MenuFunctions::main(uint32_t currentTime)
       if (this->isKeyPressed('/')) {
       #endif
         if (wifi_scan_obj.currentScanMode == WIFI_SCAN_OFF) {
-          if (wifi_scan_obj.set_channel < 14)
-            wifi_scan_obj.changeChannel(wifi_scan_obj.set_channel + 1);
-          else
-            wifi_scan_obj.changeChannel(1);
+          #ifndef HAS_DUAL_BAND
+            if (wifi_scan_obj.set_channel < 14)
+              wifi_scan_obj.changeChannel(wifi_scan_obj.set_channel + 1);
+            else
+              wifi_scan_obj.changeChannel(1);
+          #else
+            if (wifi_scan_obj.dual_band_channel_index < DUAL_BAND_CHANNELS - 1)
+              wifi_scan_obj.dual_band_channel_index++;
+            else
+              wifi_scan_obj.dual_band_channel_index = 0;
+
+            wifi_scan_obj.changeChannel(wifi_scan_obj.dual_band_channels[wifi_scan_obj.dual_band_channel_index]);
+          #endif
         }
       }
       #endif
@@ -737,10 +828,19 @@ void MenuFunctions::main(uint32_t currentTime)
       if (this->isKeyPressed(',')) {
       #endif
         if (wifi_scan_obj.currentScanMode == WIFI_SCAN_OFF) {
-          if (wifi_scan_obj.set_channel > 1)
-            wifi_scan_obj.changeChannel(wifi_scan_obj.set_channel - 1);
-          else
-            wifi_scan_obj.changeChannel(14);
+          #ifndef HAS_DUAL_BAND
+            if (wifi_scan_obj.set_channel > 1)
+              wifi_scan_obj.changeChannel(wifi_scan_obj.set_channel - 1);
+            else
+              wifi_scan_obj.changeChannel(14);
+          #else
+            if (wifi_scan_obj.dual_band_channel_index > 0)
+              wifi_scan_obj.dual_band_channel_index--;
+            else
+              wifi_scan_obj.dual_band_channel_index = DUAL_BAND_CHANNELS - 1;
+
+            wifi_scan_obj.changeChannel(wifi_scan_obj.dual_band_channels[wifi_scan_obj.dual_band_channel_index]);
+          #endif
         }
       }
       #endif
@@ -864,7 +964,7 @@ void MenuFunctions::updateStatusBar()
 
   bool status_changed = false;
   
-  #if defined(MARAUDER_MINI) || defined(MARAUDER_M5STICKC) || defined(MARAUDER_REV_FEATHER) || defined(MARAUDER_CARDPUTER)
+  #if defined(MARAUDER_MINI) || defined(MARAUDER_M5STICKC) || defined(MARAUDER_REV_FEATHER) || defined(MARAUDER_CARDPUTER) || defined(MARAUDER_MINI_V3)
     display_obj.tft.setFreeFont(NULL);
   #endif
   
@@ -918,7 +1018,7 @@ void MenuFunctions::updateStatusBar()
 
   if ((current_channel != wifi_scan_obj.old_channel) || (status_changed)) {
     wifi_scan_obj.old_channel = current_channel;
-    #if defined(MARAUDER_MINI) || defined(MARAUDER_M5STICKC) || defined(MARAUDER_REV_FEATHER) || defined(MARAUDER_CARDPUTER)
+    #if defined(MARAUDER_MINI) || defined(MARAUDER_M5STICKC) || defined(MARAUDER_REV_FEATHER) || defined(MARAUDER_CARDPUTER) || defined(MARAUDER_MINI_V3)
       display_obj.tft.fillRect(TFT_WIDTH/4, 0, CHAR_WIDTH * 6, STATUS_BAR_WIDTH, STATUSBAR_COLOR);
     #elif defined(HAS_DUAL_BAND)
       display_obj.tft.fillRect(50, 0, (CHAR_WIDTH / 2) * 8, STATUS_BAR_WIDTH, STATUSBAR_COLOR);
@@ -935,7 +1035,7 @@ void MenuFunctions::updateStatusBar()
   }
 
   // RAM Stuff
-  wifi_scan_obj.freeRAM();
+  wifi_scan_obj.free_ram = String(esp_get_free_heap_size());
   if ((wifi_scan_obj.free_ram != wifi_scan_obj.old_free_ram) || (status_changed)) {
     wifi_scan_obj.old_free_ram = wifi_scan_obj.free_ram;
     //display_obj.tft.fillRect(100, 0, 60, STATUS_BAR_WIDTH, STATUSBAR_COLOR);
@@ -1118,7 +1218,7 @@ void MenuFunctions::drawStatusBar()
   #endif
 
   // RAM Stuff
-  wifi_scan_obj.freeRAM();
+  wifi_scan_obj.free_ram = String(esp_get_free_heap_size());
   wifi_scan_obj.old_free_ram = wifi_scan_obj.free_ram;
   display_obj.tft.fillRect(100, 0, 60, STATUS_BAR_WIDTH, STATUSBAR_COLOR);
   #ifdef HAS_FULL_SCREEN
@@ -1249,8 +1349,7 @@ void MenuFunctions::drawStatusBar()
   }
 }
 
-void MenuFunctions::orientDisplay()
-{
+void MenuFunctions::orientDisplay() {
   display_obj.init();
 
   display_obj.tft.setRotation(SCREEN_ORIENTATION); // Portrait
@@ -1265,7 +1364,7 @@ void MenuFunctions::orientDisplay()
     #endif
   #endif
 
-  changeMenu(current_menu);
+  changeMenu(current_menu, true);
 }
 
 void MenuFunctions::runBoolSetting(String key) {
@@ -1284,6 +1383,9 @@ String MenuFunctions::callSetting(String key) {
 
 void MenuFunctions::displaySetting(String key, Menu* menu, int index) {
   specSettingMenu.name = key;
+
+  Serial.print(F("displaySetting: "));
+  Serial.println(key);
 
   bool setting_value = settings_obj.loadSetting<bool>(key);
 
@@ -1367,9 +1469,9 @@ void MenuFunctions::RunSetup()
   wifiSnifferMenu.list = new LinkedList<MenuNode>();
   wifiScannerMenu.list = new LinkedList<MenuNode>();
   wifiAttackMenu.list = new LinkedList<MenuNode>();
-  #ifdef HAS_GPS
+  /*#ifdef HAS_GPS
     wardrivingMenu.list = new LinkedList<MenuNode>();
-  #endif
+  #endif*/
   wifiGeneralMenu.list = new LinkedList<MenuNode>();
   wifiAPMenu.list = new LinkedList<MenuNode>();
   wifiIPMenu.list = new LinkedList<MenuNode>();
@@ -1444,7 +1546,7 @@ void MenuFunctions::RunSetup()
   #ifdef HAS_GPS
     gpsMenu.name = "GPS"; 
     gpsInfoMenu.name = "GPS Data";
-    wardrivingMenu.name = "Wardriving";
+    //wardrivingMenu.name = "Wardriving";
   #endif  
   htmlMenu.name = "EP HTML List";
   miniKbMenu.name = "Mini Keyboard";
@@ -1490,11 +1592,11 @@ void MenuFunctions::RunSetup()
   this->addNodes(&wifiMenu, "Scanners", TFTORANGE, NULL, SCANNERS, [this]() {
     this->changeMenu(&wifiScannerMenu, true);
   });
-  #ifdef HAS_GPS
+  /*#ifdef HAS_GPS
     this->addNodes(&wifiMenu, "Wardriving", TFTGREEN, NULL, BEACON_SNIFF, [this]() {
       this->changeMenu(&wardrivingMenu, true);
     });
-  #endif
+  #endif*/
   this->addNodes(&wifiMenu, text_table1[32], TFTRED, NULL, ATTACKS, [this]() {
     this->changeMenu(&wifiAttackMenu, true);
   });
@@ -1603,6 +1705,8 @@ void MenuFunctions::RunSetup()
   });
   #ifdef HAS_ILI9341
     this->addNodes(&wifiSnifferMenu, text_table1[46], TFTVIOLET, NULL, EAPOL, [this]() {
+      display_obj.clearScreen();
+      this->drawStatusBar();
       wifi_scan_obj.StartScan(WIFI_SCAN_EAPOL, TFT_VIOLET);
     });
     this->addNodes(&wifiSnifferMenu, text_table1[45], TFTBLUE, NULL, PACKET_MONITOR, [this]() {
@@ -1666,11 +1770,11 @@ void MenuFunctions::RunSetup()
     this->drawStatusBar();
     wifi_scan_obj.StartScan(WIFI_SCAN_AP_STA, 0x97e0);
   });
-  this->addNodes(&wifiSnifferMenu, text_table1[59], TFTORANGE, NULL, PACKET_MONITOR, [this]() {
+  /*this->addNodes(&wifiSnifferMenu, text_table1[59], TFTORANGE, NULL, PACKET_MONITOR, [this]() {
     display_obj.clearScreen();
     this->drawStatusBar();
     wifi_scan_obj.StartScan(WIFI_SCAN_STATION, TFT_WHITE);
-  });
+  });*/
   this->addNodes(&wifiSnifferMenu, "Signal Monitor", TFTCYAN, NULL, PACKET_MONITOR, [this]() {
     display_obj.clearScreen();
     this->drawStatusBar();
@@ -1689,19 +1793,19 @@ void MenuFunctions::RunSetup()
 
   // Build Wardriving menu
   #ifdef HAS_GPS
-    wardrivingMenu.parentMenu = &wifiMenu; // Main Menu is second menu parent
+    /*wardrivingMenu.parentMenu = &wifiMenu; // Main Menu is second menu parent
     this->addNodes(&wardrivingMenu, text09, TFTLIGHTGREY, NULL, 0, [this]() {
       this->changeMenu(wardrivingMenu.parentMenu, true);
-    });
+    });*/
     if (gps_obj.getGpsModuleStatus()) {
-      this->addNodes(&wardrivingMenu, "Wardrive", TFTGREEN, NULL, BEACON_SNIFF, [this]() {
+      this->addNodes(&wifiSnifferMenu, "Wardrive", TFTGREEN, NULL, BEACON_SNIFF, [this]() {
         display_obj.clearScreen();
         this->drawStatusBar();
         wifi_scan_obj.StartScan(WIFI_SCAN_WAR_DRIVE, TFT_GREEN);
       });
     }
   #endif
-  #ifdef HAS_GPS
+  /*#ifdef HAS_GPS
     if (gps_obj.getGpsModuleStatus()) {
       this->addNodes(&wardrivingMenu, "Station Wardrive", TFTORANGE, NULL, PROBE_SNIFF, [this]() {
         display_obj.clearScreen();
@@ -1709,7 +1813,7 @@ void MenuFunctions::RunSetup()
         wifi_scan_obj.StartScan(WIFI_SCAN_STATION_WAR_DRIVE, TFT_ORANGE);
       });
     }
-  #endif
+  #endif*/
 
   // Build WiFi attack menu
   wifiAttackMenu.parentMenu = &wifiMenu; // Main Menu is second menu parent
@@ -1856,6 +1960,16 @@ void MenuFunctions::RunSetup()
     display_obj.clearScreen();
     this->drawStatusBar();
     wifi_scan_obj.StartScan(WIFI_ATTACK_SAE_COMMIT, TFT_GREEN);
+  });
+  this->addNodes(&wifiAttackMenu, "Channel Switch", TFTORANGE, NULL, BEACON_LIST, [this]() {
+    display_obj.clearScreen();
+    this->drawStatusBar();
+    wifi_scan_obj.StartScan(WIFI_ATTACK_CSA, TFT_GREEN);
+  });
+  this->addNodes(&wifiAttackMenu, "Quiet Time", TFTRED, NULL, BEACON_LIST, [this]() {
+    display_obj.clearScreen();
+    this->drawStatusBar();
+    wifi_scan_obj.StartScan(WIFI_ATTACK_QUIET, TFT_GREEN);
   });
 
   evilPortalMenu.parentMenu = &wifiAttackMenu;
@@ -2199,7 +2313,7 @@ void MenuFunctions::RunSetup()
               wifi_scan_obj.joinWiFi(access_points->get(i).essid, String(passwordBuf), true);
             }
 
-            this->changeMenu(&wifiGeneralMenu, false);
+            this->changeMenu(&wifiGeneralMenu, true);
           #endif
         });
       }
@@ -2247,7 +2361,7 @@ void MenuFunctions::RunSetup()
                 wifi_scan_obj.joinWiFi(access_points->get(i).essid, String(passwordBuf), true);
               }
 
-              this->changeMenu(&wifiGeneralMenu, false);
+              this->changeMenu(&wifiGeneralMenu, true);
             #endif
           });
         }
@@ -2255,7 +2369,7 @@ void MenuFunctions::RunSetup()
       }
     });
 
-    this->addNodes(&wifiGeneralMenu, "Start AP", TFTGREEN, NULL, KEYBOARD_ICO, [this](){
+    /*this->addNodes(&wifiGeneralMenu, "Start AP", TFTGREEN, NULL, KEYBOARD_ICO, [this](){
       ssidsMenu.parentMenu = &wifiGeneralMenu;
 
       // Add the back button
@@ -2294,7 +2408,7 @@ void MenuFunctions::RunSetup()
         });
       }
       this->changeMenu(&ssidsMenu, true);
-    });
+    });*/
 
     wifiStationMenu.parentMenu = &ssidsMenu;
     this->addNodes(&wifiStationMenu, text09, TFTLIGHTGREY, NULL, 0, [this]() {
@@ -2463,6 +2577,11 @@ void MenuFunctions::RunSetup()
     this->drawStatusBar();
     wifi_scan_obj.StartScan(BT_SCAN_FLOCK_WARDRIVE, TFT_CYAN);
   });
+  this->addNodes(&bluetoothSnifferMenu, "Meta Detect", TFTWHITE, NULL, BLUETOOTH_SNIFF, [this]() {
+    display_obj.clearScreen();
+    this->drawStatusBar();
+    wifi_scan_obj.StartScan(BT_SCAN_RAYBAN, TFT_CYAN);
+  });
 
   // Bluetooth Attack menu
   bluetoothAttackMenu.parentMenu = &bluetoothMenu; // Second Menu is third menu parent
@@ -2585,12 +2704,18 @@ void MenuFunctions::RunSetup()
     this->changeMenu(&saveFileMenu, true);
   });
 
+  #ifndef HAS_MINI_SCREEN
+    this->addNodes(&deviceMenu, "Brightness", TFTYELLOW, NULL, BRIGHTNESS, [this]() {
+      this->brightnessMode();
+    });
+  #endif
+
   this->addNodes(&deviceMenu, text_table1[17], TFTWHITE, NULL, DEVICE_INFO, [this]() {
     wifi_scan_obj.currentScanMode = SHOW_INFO;
     this->changeMenu(&infoMenu, true);
     wifi_scan_obj.RunInfo();
   });
-  this->addNodes(&deviceMenu, text08, TFTNAVY, NULL, KEYBOARD_ICO, [this]() {
+  this->addNodes(&deviceMenu, text08, TFTBLUE, NULL, SETTINGS, [this]() {
     this->changeMenu(&settingsMenu, true);
   });
 
@@ -2746,14 +2871,16 @@ void MenuFunctions::RunSetup()
   });
   for (int i = 0; i < settings_obj.getNumberSettings(); i++) {
     if (this->callSetting(settings_obj.setting_index_to_name(i)) == "bool")
-      this->addNodes(&settingsMenu, settings_obj.setting_index_to_name(i), TFTLIGHTGREY, NULL, 0, [this, i]() {
-      settings_obj.toggleSetting(settings_obj.setting_index_to_name(i));
-      this->changeMenu(&specSettingMenu, true);
-      this->displaySetting(settings_obj.setting_index_to_name(i), &settingsMenu, i + 1);
-      wifi_scan_obj.force_pmkid = settings_obj.loadSetting<bool>(text_table4[5]);
-      wifi_scan_obj.force_probe = settings_obj.loadSetting<bool>(text_table4[6]);
-      wifi_scan_obj.save_pcap = settings_obj.loadSetting<bool>(text_table4[7]);
-      wifi_scan_obj.ep_deauth = settings_obj.loadSetting<bool>("EPDeauth");
+      this->addNodes(&settingsMenu, settings_obj.setting_index_to_name(i), TFTLIGHTGREY, NULL, SETTINGS, [this, i]() {
+        settings_obj.toggleSetting(settings_obj.setting_index_to_name(i));
+        this->callSetting(settings_obj.setting_index_to_name(i));
+        this->changeMenu(&specSettingMenu, true);
+        this->displaySetting(settings_obj.setting_index_to_name(i), &settingsMenu, i + 1);
+        wifi_scan_obj.force_pmkid = settings_obj.loadSetting<bool>(text_table4[5]);
+        wifi_scan_obj.force_probe = settings_obj.loadSetting<bool>(text_table4[6]);
+        wifi_scan_obj.save_pcap = settings_obj.loadSetting<bool>(text_table4[7]);
+        wifi_scan_obj.ep_deauth = settings_obj.loadSetting<bool>("EPDeauth");
+        wifi_scan_obj.channel_hop = settings_obj.loadSetting<bool>("ChanHop");
     }, settings_obj.loadSetting<bool>(settings_obj.setting_index_to_name(i)));
   }
 
@@ -3249,21 +3376,6 @@ void MenuFunctions::buildSDFileMenu(bool update) {
   }
 }
 
-// Function to show all MenuNodes in a Menu
-void MenuFunctions::showMenuList(Menu * menu, int layer)
-{
-  // Iterate through all of the menu nodes in the menu
-  for (uint8_t i = 0; i < menu->list->size(); i++)
-  {
-    // Depending on layer, indent
-    for (uint8_t x = 0; x < layer * 4; x++)
-      Serial.print(" ");
-    Serial.print(F("Node: "));
-    Serial.println(menu->list->get(i).name);
-  }
-  Serial.println();
-}
-
 
 // Function to add MenuNodes to a menu
 void MenuFunctions::addNodes(Menu * menu, String name, uint8_t color, Menu * child, int place, std::function<void()> callable, bool selected, String command)
@@ -3470,9 +3582,20 @@ uint16_t MenuFunctions::getColor(uint16_t color) {
 // Function to change menu
 void MenuFunctions::changeMenu(Menu* menu, bool simple_change) {
   if (!simple_change) {
-    display_obj.initScrollValues();
-    display_obj.setupScrollArea(TOP_FIXED_AREA, BOT_FIXED_AREA);
+    //display_obj.initScrollValues();
+    //display_obj.setupScrollArea(TOP_FIXED_AREA, BOT_FIXED_AREA);
     display_obj.init();
+
+    #ifdef HAS_ILI9341
+      extern uint8_t getBrightnessLevel();
+      #if ESP_ARDUINO_VERSION_MAJOR >= 3
+        #define BL_PREVIEW(duty) ledcWrite(TFT_BL, (duty))
+      #else
+        #define BL_PREVIEW(duty) ledcWrite(0, (duty))
+      #endif
+
+      BL_PREVIEW(getBrightnessLevel());
+    #endif
   }
   current_menu = menu;
 
@@ -3607,5 +3730,95 @@ void MenuFunctions::displayCurrentMenu(int start_index)
   this->displayMenuButtons();
 }
 
+// ============================================================
+// BRIGHTNESS ADJUSTMENT MODE
+// Hold top/bottom zone 1.5s to enter. TAP TOP = brighter, TAP BOTTOM = dimmer.
+// TAP MIDDLE or wait 3s = save & exit.
+// ============================================================
+#ifndef HAS_MINI_SCREEN
+  void MenuFunctions::brightnessMode() {
+    extern void brightnessSave(uint8_t level);
+    extern uint8_t getBrightnessLevel();
+
+    const uint8_t levels[] = {26, 51, 77, 102, 128, 153, 179, 204, 230, 255};
+    const uint8_t numLevels = 10;
+    uint8_t level = getBrightnessLevel();
+
+    // LEDC write compatibility (2.x vs 3.x board package)
+    #if ESP_ARDUINO_VERSION_MAJOR >= 3
+      #define BL_PREVIEW(duty) ledcWrite(TFT_BL, (duty))
+    #else
+      #define BL_PREVIEW(duty) ledcWrite(0, (duty))
+    #endif
+
+    display_obj.tft.fillScreen(TFT_BLACK);
+    display_obj.tft.setTextColor(TFT_CYAN, TFT_BLACK);
+    display_obj.tft.drawCentreString("BRIGHTNESS", TFT_WIDTH/2, 30, 2);
+
+    display_obj.tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+    display_obj.tft.drawCentreString("TAP TOP = BRIGHTER", TFT_WIDTH/2, 10, 1);
+    display_obj.tft.drawCentreString("TAP BOTTOM = DIMMER", TFT_WIDTH/2, TFT_HEIGHT - 20, 1);
+    display_obj.tft.setTextColor(TFT_RED, TFT_BLACK);
+    display_obj.tft.drawCentreString("TAP MIDDLE or WAIT 3s = SAVE", TFT_WIDTH/2, TFT_HEIGHT/2 + 50, 1);
+
+    auto drawBar = [&]() {
+      uint16_t barX = 30, barY = TFT_HEIGHT/2 - 25, barW = TFT_WIDTH - 60, barH = 30;
+      display_obj.tft.drawRect(barX, barY, barW, barH, TFT_WHITE);
+      uint16_t fillW = (barW - 4) * (level + 1) / numLevels;
+      display_obj.tft.fillRect(barX + 2, barY + 2, barW - 4, barH - 4, TFT_BLACK);
+      display_obj.tft.fillRect(barX + 2, barY + 2, fillW, barH - 4, TFT_CYAN);
+      display_obj.tft.fillRect(0, barY + barH + 5, TFT_WIDTH, 20, TFT_BLACK);
+      display_obj.tft.setTextColor(TFT_WHITE, TFT_BLACK);
+      String pct = String(levels[level] * 100 / 255) + "%";
+      display_obj.tft.drawCentreString(pct, TFT_WIDTH/2, barY + barH + 8, 2);
+    };
+    drawBar();
+
+    uint16_t zoneUp = TFT_HEIGHT * 25 / 100;
+    uint16_t zoneDown = TFT_HEIGHT * 75 / 100;
+    uint32_t lastTouch = millis();
+
+    while (true) {
+      // Auto-save after 3s of no touch
+      if (millis() - lastTouch >= 3000) {
+        brightnessSave(level);
+        break;
+      }
+
+      uint16_t tx, ty;
+      if (display_obj.updateTouch(&tx, &ty)) {
+        lastTouch = millis();
+        // Wait for release
+        while (display_obj.updateTouch(&tx, &ty)) delay(10);
+
+        if (ty < zoneUp) {
+          if (level < numLevels - 1) {
+            level++;
+            BL_PREVIEW(levels[level]);
+            drawBar();
+          }
+        } else if (ty >= zoneDown) {
+          if (level > 0) {
+            level--;
+            BL_PREVIEW(levels[level]);
+            drawBar();
+          }
+        } else {
+          // Middle = save now
+          brightnessSave(level);
+          break;
+        }
+        delay(150);
+      }
+      delay(30);
+    }
+
+    #undef BL_PREVIEW
+    this->changeMenu(current_menu, true);
+  }
 #endif
+
+#endif
+
+
 

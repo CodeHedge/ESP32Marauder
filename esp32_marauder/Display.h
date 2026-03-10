@@ -9,11 +9,8 @@
 
 #include <FS.h>
 #include <functional>
-//#include <JPEGDecoder.h>
 #include <LinkedList.h>
 #include <SPI.h>
-//#include <lvgl.h>
-//#include <Ticker.h>
 #include "SPIFFS.h"
 #include "Assets.h"
 
@@ -53,6 +50,15 @@
 #define SELECT_BUTTON 1
 #define DOWN_BUTTON   2
 
+#define EXIT_BUTTON_INDEX 0 // 6
+#define CHAN_MINUS_INDEX  1 // 4
+#define CHAN_PLUS_INDEX   2 // 5
+#define CHAN_HOP_INDEX    5 // 7
+#define X_MINUS_INDEX     6
+#define X_PLUS_INDEX      7
+#define Y_MINUS_INDEX     8
+#define Y_PLUS_INDEX      9
+
 class Display
 {
   private:
@@ -77,7 +83,7 @@ class Display
   public:
     Display();
     TFT_eSPI tft = TFT_eSPI();
-    TFT_eSPI_Button key[BUTTON_ARRAY_LEN + 3];
+    TFT_eSPI_Button key[BUTTON_ARRAY_LEN + 4];
     const String PROGMEM version_number = MARAUDER_VERSION;
 
     #ifdef HAS_CYD_TOUCH
@@ -130,22 +136,20 @@ class Display
     void tftDrawYScaleButtons(byte y_scale);
     void tftDrawChannelScaleButtons(int set_channel, bool lnd_an = true);
     void tftDrawExitScaleButtons(bool lnd_an = true);
+    void tftDrawChanHopButton(bool lnd_an = true, bool en = false);
     void buildBanner(String msg, int xpos);
     void clearScreen();
     void displayBuffer(bool do_clear = false);
     //void drawJpeg(const char *filename, int xpos, int ypos);
     void getTouchWhileFunction(bool pressed);
-    void initScrollValues(bool tte = false);
+    //void initScrollValues(bool tte = false);
     //void jpegInfo();
     //void jpegRender(int xpos, int ypos);
-    void listDir(fs::FS &fs, const char * dirname, uint8_t levels);
-    void listFiles();
     void init();
-    void main(uint8_t scan_mode);
     void RunSetup();
-    void scrollAddress(uint16_t vsp);
-    int scroll_line(uint32_t color);
-    void setupScrollArea(uint16_t tfa, uint16_t bfa);
+    //void scrollAddress(uint16_t vsp);
+    //int scroll_line(uint32_t color);
+    //void setupScrollArea(uint16_t tfa, uint16_t bfa);
     void showCenterText(String text, int y);
     void touchToExit();
     void twoPartDisplay(String center_text);

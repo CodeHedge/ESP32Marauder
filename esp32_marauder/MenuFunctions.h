@@ -98,6 +98,8 @@ extern Settings settings_obj;
 #define FORCE 39
 #define FUNNY_BEACON 40
 #define FLOCK 41
+#define BRIGHTNESS 42
+#define SETTINGS 43
 
 struct Menu;
 
@@ -161,9 +163,9 @@ class MenuFunctions
     Menu wifiSnifferMenu;
     Menu wifiScannerMenu;
     Menu wifiAttackMenu;
-    #ifdef HAS_GPS
+    /*#ifdef HAS_GPS
       Menu wardrivingMenu;
-    #endif
+    #endif*/
     Menu wifiGeneralMenu;
     Menu wifiAPMenu;
     Menu wifiIPMenu;
@@ -219,7 +221,6 @@ class MenuFunctions
     void addNodes(Menu* menu, String name, uint8_t color, Menu* child, int place, std::function<void()> callable, bool selected = false, String command = "");
     void battery(bool initial = false);
     void battery2(bool initial = false);
-    void showMenuList(Menu* menu, int layer);
     String callSetting(String key);
     void runBoolSetting(String ley);
     void displaySetting(String key, Menu* menu, int index);
@@ -237,8 +238,6 @@ class MenuFunctions
     #endif
 
   public:
-    MenuFunctions();
-
     Menu* current_menu;
     Menu clearSSIDsMenu;
     Menu clearAPsMenu;
@@ -269,14 +268,15 @@ class MenuFunctions
 
     String loaded_file = "";
 
-    void joinWiFiGFX(String essid, bool start_ap = false);
     void setGraphScale(float scale);
     void updateStatusBar();
-    void addSSIDGFX();
     void buildButtons(Menu* menu, int starting_index = 0, String button_name = "");
     void changeMenu(Menu* menu, bool simple_change = false);
     void drawStatusBar();
     void displayCurrentMenu(int start_index = 0);
+    #ifndef HAS_MINI_SCREEN
+      void brightnessMode();
+    #endif
     void main(uint32_t currentTime);
     void RunSetup();
     void orientDisplay();
@@ -285,4 +285,5 @@ class MenuFunctions
 
 #endif
 #endif
+
 
