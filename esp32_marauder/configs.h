@@ -39,7 +39,7 @@
 
   #define JSON_SETTING_SIZE 2048
 
-  #define MARAUDER_VERSION "v1.11.0"
+  #define MARAUDER_VERSION "v1.11.1"
 
   #define GRAPH_REFRESH   100
 
@@ -302,7 +302,7 @@
     #define HAS_CYD_TOUCH
     #define HAS_CYD_PORTRAIT
     #define HAS_NIMBLE_2
-    #define HAS_IDF_3
+    //#define HAS_IDF_3  // Using IDF 2.0.11 for GPS compatibility
   #endif
 
   #ifdef MARAUDER_CYD_3_5_INCH
