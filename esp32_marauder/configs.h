@@ -2535,8 +2535,8 @@
       #define GPS_RX 25
     #elif defined(MARAUDER_CYD_GUITION)
       #define GPS_SERIAL_INDEX 2
-      #define GPS_TX 21 // Fits the extended I/O
-      #define GPS_RX 22
+      #define GPS_TX 1 // Fits the extended I/O
+      #define GPS_RX 3
     #elif defined(MARAUDER_V4)
       #define GPS_SERIAL_INDEX 2
       #define GPS_TX 4
