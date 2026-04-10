@@ -3,18 +3,6 @@
 <!---[![Build Status](https://travis-ci.com/CodeHedge/ESP32Marauder.svg?branch=master)](https://travis-ci.com/CodeHedge/ESP32Marauder)--->
 <!---Shields/Badges https://shields.io/--->
 
-# ESP32 Marauder - Modified CYD Build
-<p align="center"><img alt="Marauder logo" src="https://github.com/CodeHedge/ESP32Marauder/blob/master/pictures/marauder_skull_patch_04_full_final.png?raw=true" width="300"></p>
-<p align="center">
-  <b>A suite of WiFi/Bluetooth offensive and defensive tools for the ESP32</b>
-  <br><br>
-  <a href="https://github.com/CodeHedge/ESP32Marauder/blob/master/LICENSE"><img alt="License" src="https://img.shields.io/github/license/mashape/apistatus.svg"></a>
-  <a href="https://github.com/CodeHedge/ESP32Marauder/releases/latest"><img src="https://img.shields.io/github/downloads/CodeHedge/ESP32Marauder/total" alt="Downloads"/></a>
-  <br><br>
-</p>
-
-[![Build and Push](https://github.com/CodeHedge/ESP32Marauder/actions/workflows/build_push.yml/badge.svg)](https://github.com/CodeHedge/ESP32Marauder/actions/workflows/build_push.yml)
-
 ## About This Fork
 
 This repository is a fork of the ESP32 Marauder firmware with modified capabilities specifically for CYD (Cheap Yellow Display) builds.
